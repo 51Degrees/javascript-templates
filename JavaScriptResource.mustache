@@ -343,7 +343,13 @@ fiftyoneDegreesManager = function() {
 {{#_updateEnabled}}
     // Process the response as json and call the resolve method.
     var loadJSON = function(resolve, reject, responseText) {
-        json = JSON.parse(responseText);
+        try {
+            json = JSON.parse(responseText);
+        } catch(err) {
+            clearCache();
+            reject(new Error("Invalid JSON - the endpoint is likely setup incorrectly", { cause: err }));
+            return;
+        }
 
         if (hasJSFunctions()) {
             // json updated so fire 'on change' functions
@@ -476,7 +482,19 @@ fiftyoneDegreesManager = function() {
 
     // Function logs errors, used to 'reject' a promise or for error callbacks.
     var catchError = function(value) {
-        console.log(value.message || value);
+		function errorToDesc(subError) {
+			let msg = subError.message;
+			if (!msg) {
+				return subError;
+			}
+			let cause = subError.cause;
+			if (cause) {
+				msg += '\n--- caused by ---\n';
+				msg += errorToDesc(cause);
+			}
+			return msg;
+		}
+        console.log(errorToDesc(value));
     }
 
     // Populate this instance of the FOD object with getters to access the
