@@ -53,6 +53,36 @@ document.cookie = `51D_PropertyName=START${window.middle}END`; // Concatenating 
 
 `'unsafe-eval'` source is needed because the template loads and executes dynamic javascript code snippets relying on JavaScript Function API which is in the eval() family. The snippets are part of the data file and are frequently updated to support latest changes in the browsers. Snippet execution may cause multiple server calls to load more dynamic code (in theory, in practice it usually comes down to a single server call) - thus this code can not be statically included in the template and has to be loaded dynamically as part of the JSON response of the server. 
 
+## Public object contract
+
+The generated script creates a global object (default name `fod`, set by the
+JavaScriptBuilderElement `ObjectName` option). Besides the existing
+`complete(callback)` / `onChange(callback)` API the object exposes:
+
+- `is51Degrees` - always `true`; lets consumers tell the object apart from an
+  unrelated global that happens to share its name.
+- `isComplete` - `false` while evidence collection is in flight, `true` once
+  processing finished (successfully or not; see `data.errors`).
+- `data` - the latest raw JSON payload. Unlike the property getters it keeps
+  missing values as `null` instead of substituting the null-reason text.
+
+## Page-supplied evidence
+
+A page can pass extra evidence for the JSON refresh request by defining a
+plain string-to-string object named `<ObjectName>Evidence` (default
+`fodEvidence`) before the script executes:
+
+    <script>
+      window.fodEvidence = { 'id.email': 'user@example.com' };
+    </script>
+    <script src=".../resource.js?id.usage=personalized"></script>
+
+Each entry is url-encoded and appended to the form-data body of the POST
+request. The values are never written to the URL, cookies or web storage, so
+this is the supported way to pass sensitive evidence such as `id.email`.
+Query-string parameters of the script URL override same-named form fields on
+the server, so do not duplicate keys across both.
+
 ## Shipping / Deployment
 
 This repo is not a stand-alone package, but is shipped as part of and used by each of the following repositories / packages:

@@ -25,6 +25,18 @@ fiftyoneDegreesManager = function() {
     // Set to true when the `catchError` is called.
     let failed = false;
 
+    var self = this;
+
+    // Identifies this object as the 51Degrees integration.
+    this.is51Degrees = true;
+
+    // Keeps the public data and isComplete values in sync.
+    var syncPublicState = function() {
+        self.data = json;
+        self.isComplete = completed || failed;
+    }
+    syncPublicState();
+
     // changeFuncs is an array of functions. When onChange is called and passed
     // a function, the function is registered and is called when processing is
     // complete.
@@ -289,6 +301,7 @@ fiftyoneDegreesManager = function() {
                     var func = undefined;
                     var searchString = '// 51D replace this comment with callback function.';
                     completed = false;
+                    syncPublicState();
                     jsPropertiesStarted.push(name);
                     started++;
 
@@ -363,6 +376,7 @@ fiftyoneDegreesManager = function() {
             executeCallback = false;
             failed = false;
             completed = true;
+            syncPublicState();
         }
 
         if (executeCallback) {
@@ -449,6 +463,7 @@ fiftyoneDegreesManager = function() {
     // update-enabled render can still be present when this one is rendered.
     var loadParsedJSON = function(resolve, reject, newJson) {
         json = newJson;
+        syncPublicState();
 
         if (hasJSFunctions()) {
             // json updated so fire 'on change' functions
@@ -459,6 +474,7 @@ fiftyoneDegreesManager = function() {
         } else {
             failed = false;
             completed = true;
+            syncPublicState();
             // json updated so fire 'on change' functions
             // This must happen after completed = true in order
             // for 'complete' functions to fire.
@@ -513,6 +529,17 @@ fiftyoneDegreesManager = function() {
         for (var param in parameters) {
             if (parameters.hasOwnProperty(param)) {
                 params.push(param+"="+parameters[param])
+            }
+        }
+
+        // Additional evidence provided by the page. Sent in the request
+        // body only and never stored.
+        var pageEvidence = window["{{_objName}}Evidence"];
+        if (pageEvidence) {
+            for (var evidenceKey in pageEvidence) {
+                if (pageEvidence.hasOwnProperty(evidenceKey)) {
+                    params.push(encodeURIComponent(evidenceKey) + "=" + encodeURIComponent(pageEvidence[evidenceKey]));
+                }
             }
         }
 
@@ -618,6 +645,7 @@ fiftyoneDegreesManager = function() {
     // Function logs errors, used to 'reject' a promise or for error callbacks.
     var catchError = function(value) {
         failed = true;
+        syncPublicState();
 		function errorToDesc(subError) {
 			let msg = subError.message;
 			if (!msg) {
@@ -779,6 +807,7 @@ fiftyoneDegreesManager = function() {
         update.call(parent, value);
         failed = false;
         completed = true;
+        syncPublicState();
     }).catch(catchError);
 {{/_supportsPromises}}
 {{^_supportsPromises}}
