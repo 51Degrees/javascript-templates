@@ -59,8 +59,6 @@ The generated script creates a global object (default name `fod`, set by the
 JavaScriptBuilderElement `ObjectName` option). Besides the existing
 `complete(callback)` / `onChange(callback)` API the object exposes:
 
-- `is51Degrees` - always `true`; lets consumers tell the object apart from an
-  unrelated global that happens to share its name.
 - `isComplete` - `false` while evidence collection is in flight, `true` once
   processing finished (successfully or not; see `data.errors`).
 - `data` - the latest raw JSON payload. Unlike the property getters it keeps
