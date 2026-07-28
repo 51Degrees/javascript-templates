@@ -532,9 +532,9 @@ fiftyoneDegreesManager = function() {
         // Additional evidence provided by the page. Sent in the request
         // body only and never stored.
         var pageEvidence = window["{{_objName}}Evidence"];
-        if (pageEvidence) {
+        if (pageEvidence && typeof pageEvidence === "object") {
             for (var evidenceKey in pageEvidence) {
-                if (pageEvidence.hasOwnProperty(evidenceKey)) {
+                if (Object.prototype.hasOwnProperty.call(pageEvidence, evidenceKey)) {
                     params.push(encodeURIComponent(evidenceKey) + "=" + encodeURIComponent(pageEvidence[evidenceKey]));
                 }
             }

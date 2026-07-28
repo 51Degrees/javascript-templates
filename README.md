@@ -64,6 +64,10 @@ JavaScriptBuilderElement `ObjectName` option). Besides the existing
 - `data` - the latest raw JSON payload. Unlike the property getters it keeps
   missing values as `null` instead of substituting the null-reason text.
 
+Top-level payload keys are mirrored onto the object, so response payloads
+must not use keys named `data`, `isComplete`, `complete`, `onChange`,
+`promise` or `sessionId`.
+
 ## Page-supplied evidence
 
 A page can pass extra evidence for the JSON refresh request by defining a
@@ -79,7 +83,10 @@ Each entry is url-encoded and appended to the form-data body of the POST
 request. The values are never written to the URL, cookies or web storage, so
 this is the supported way to pass sensitive evidence such as `id.email`.
 Query-string parameters of the script URL override same-named form fields on
-the server, so do not duplicate keys across both.
+the server, so do not duplicate keys across both. The values are sent only
+when the script makes its JSON refresh request; with updates disabled or a
+cached response there is no request to carry them. Avoid keys that clash
+with the request's own fields, such as `session-id` or `sequence`.
 
 ## Shipping / Deployment
 
