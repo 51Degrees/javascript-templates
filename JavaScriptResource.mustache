@@ -1,5 +1,5 @@
 fiftyoneDegreesManager = function() {
-    'use-strict';
+    'use strict';
     var json = {{&_jsonObject}};
     var parameters = {{&_parameters}};
     var sessionId = "{{&_sessionId}}";
@@ -50,8 +50,8 @@ fiftyoneDegreesManager = function() {
 
     var clearCache = function() {
         if (sessionStorage) {
-            for (i = 0; i < sessionStorage.length; i++) {
-                key = sessionStorage.key(i);
+            for (var i = 0; i < sessionStorage.length; i++) {
+                var key = sessionStorage.key(i);
                 // Match the exact key or the key plus a separator. Without the
                 // session id the prefix is short enough that a bare startsWith
                 // would also match an unrelated key on the same origin.
