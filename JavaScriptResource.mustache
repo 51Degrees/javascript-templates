@@ -589,7 +589,7 @@ fiftyoneDegreesManager = function() {
     // Get all values in any 'evidenceproperty' fields on this object
     // or sub-objects.
     var getEvidencePropertiesFromObject = function (dataObject) {
-        evidenceProperties = [];
+        var evidenceProperties = [];
 
         for (var prop in dataObject) {
             if (dataObject.hasOwnProperty(prop)) {
