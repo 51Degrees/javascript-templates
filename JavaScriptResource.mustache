@@ -69,10 +69,39 @@ fiftyoneDegreesManager = function() {
         if (sessionStorage) {
             var parametersString = sessionStorage.getItem(sessionKey + "_parameters");
             if (parametersString) {
-                parameters = JSON.parse(parametersString);
+                // Merge rather than replace: parameters is rendered from this
+                // page view's own query evidence and must win over anything a
+                // previous page view stored under the same key.
+                var storedParameters = JSON.parse(parametersString);
+                for (var name in storedParameters) {
+                    if (storedParameters.hasOwnProperty(name) &&
+                        parameters.hasOwnProperty(name) === false) {
+                        parameters[name] = storedParameters[name];
+                    }
+                }
             }
         }
         return parameters;
+    }
+
+    // Cached values fill the gaps in the payload rendered for this page view;
+    // they never override a value the server has just supplied.
+    var mergeCached = function(cachedJson) {
+        Object.getOwnPropertyNames(cachedJson).forEach(function(group) {
+            if (typeof cachedJson[group] !== 'object' || cachedJson[group] === null) {
+                return;
+            }
+            if (json[group] === undefined) {
+                json[group] = cachedJson[group];
+                return;
+            }
+            for (var name in cachedJson[group]) {
+                if (json[group][name] === null || json[group][name] === undefined) {
+                    json[group][name] = cachedJson[group][name];
+                }
+            }
+        });
+        return json;
     }
 
     var saveParameters = function(sourceParams) {
@@ -221,7 +250,9 @@ fiftyoneDegreesManager = function() {
                     toProcess++;
                 }
 
-                var isCached = sessionStorage && sessionStorage.getItem(sessionKey + "_property_" + name);
+                var isCached = sessionStorage &&
+                    sessionStorage.getItem(sessionKey) &&
+                    sessionStorage.getItem(sessionKey + "_property_" + name);
 
                 // If the property has already been processed then skip it.
                 if (isCached) {
@@ -301,8 +332,16 @@ fiftyoneDegreesManager = function() {
         if ((cached === toProcess || started === 0) && sessionStorage)  {
             var cachedResponse = sessionStorage.getItem(sessionKey);
             if (cachedResponse) {
-                loadJSON(resolve, reject, cachedResponse);
-                executeCallback = false;
+                var cachedJson = null;
+                try {
+                    cachedJson = JSON.parse(cachedResponse);
+                } catch (err) {
+                    clearCache();
+                }
+                if (cachedJson) {
+                    loadParsedJSON(resolve, reject, mergeCached(cachedJson));
+                    executeCallback = false;
+                }
             }
         }
 
@@ -379,13 +418,20 @@ fiftyoneDegreesManager = function() {
 {{#_updateEnabled}}
     // Process the response as json and call the resolve method.
     var loadJSON = function(resolve, reject, responseText) {
+        var newJson;
         try {
-            json = JSON.parse(responseText);
+            newJson = JSON.parse(responseText);
         } catch(err) {
             clearCache();
             reject(new Error("Invalid JSON - the endpoint is likely setup incorrectly", { cause: err }));
             return;
         }
+        loadParsedJSON(resolve, reject, newJson);
+    }
+
+    // Continues with an already parsed payload.
+    var loadParsedJSON = function(resolve, reject, newJson) {
+        json = newJson;
 
         if (hasJSFunctions()) {
             // json updated so fire 'on change' functions
@@ -460,6 +506,9 @@ fiftyoneDegreesManager = function() {
             body: postBody
         })
         .then(response => {
+            if (!response.ok) {
+                throw new Error('Request failed with status ' + response.status);
+            }
             return response.text();
         })
         .then(responseText => {
@@ -480,6 +529,14 @@ fiftyoneDegreesManager = function() {
         xhr.setRequestHeader('Accept', 'application/json');
 
         xhr.onload = function () {
+
+            // An error status still reaches onload, and error details come back
+            // as a JSON body, so they must not be treated as data or cached.
+            if (xhr.status < 200 || xhr.status > 299) {
+                clearCache();
+                reject(new Error('Request failed with status ' + xhr.status));
+                return;
+            }
 
             // Get the response body from the request.
             var responseText = xhr.responseText;
