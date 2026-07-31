@@ -50,7 +50,10 @@ fiftyoneDegreesManager = function() {
 
     var clearCache = function() {
         if (sessionStorage) {
-            for (var i = 0; i < sessionStorage.length; i++) {
+            // Iterate backwards: removeItem shifts every later key down one
+            // index, so a forward loop skips whichever key moves into the slot
+            // just vacated.
+            for (var i = sessionStorage.length - 1; i >= 0; i--) {
                 var key = sessionStorage.key(i);
                 // Match the exact key or the key plus a separator. Without the
                 // session id the prefix is short enough that a bare startsWith
