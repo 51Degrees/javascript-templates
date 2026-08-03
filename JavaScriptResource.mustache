@@ -84,20 +84,61 @@ fiftyoneDegreesManager = function() {
         return parameters;
     }
 
+    // Read the cached payload, or null when there is none or it cannot be used.
+    // An entry that does not parse into an object is cleared here rather than
+    // ignored: this runs before the '_property_' flags are read, so a bad entry
+    // makes this page view execute the snippets again instead of completing
+    // with neither the cached values nor a request.
+    var getCachedJson = function() {
+        if (!sessionStorage) {
+            return null;
+        }
+        var cachedResponse = sessionStorage.getItem(sessionKey);
+        if (!cachedResponse) {
+            return null;
+        }
+        var cachedJson = null;
+        try {
+            cachedJson = JSON.parse(cachedResponse);
+        } catch (err) {
+            // Handled by the check below, which also covers a payload that
+            // parses to null or to a value that is not an object.
+        }
+        if (typeof cachedJson !== 'object' || cachedJson === null) {
+            clearCache();
+            return null;
+        }
+        return cachedJson;
+    }
+
     // Cached values fill the gaps in the payload rendered for this page view;
     // they never override a value the server has just supplied.
     var mergeCached = function(cachedJson) {
         Object.getOwnPropertyNames(cachedJson).forEach(function(group) {
-            if (typeof cachedJson[group] !== 'object' || cachedJson[group] === null) {
+            var cachedGroup = cachedJson[group];
+            // Only aspect objects carry cached values. The arrays at this level
+            // (javascriptProperties, errors, warnings) describe the request that
+            // produced them, so taking them from an earlier page view would
+            // resurrect a stale error or a snippet list the server no longer
+            // sends.
+            if (typeof cachedGroup !== 'object' ||
+                cachedGroup === null ||
+                Array.isArray(cachedGroup)) {
                 return;
             }
-            if (json[group] === undefined) {
-                json[group] = cachedJson[group];
+            var freshGroup = json[group];
+            if (freshGroup === undefined || freshGroup === null) {
+                json[group] = cachedGroup;
                 return;
             }
-            for (var name in cachedJson[group]) {
-                if (json[group][name] === null || json[group][name] === undefined) {
-                    json[group][name] = cachedJson[group][name];
+            // Anything the server has just supplied as a non-object wins, and
+            // is not something values can be merged into.
+            if (typeof freshGroup !== 'object' || Array.isArray(freshGroup)) {
+                return;
+            }
+            for (var name in cachedGroup) {
+                if (freshGroup[name] === null || freshGroup[name] === undefined) {
+                    freshGroup[name] = cachedGroup[name];
                 }
             }
         });
@@ -224,6 +265,7 @@ fiftyoneDegreesManager = function() {
         var started = 0;
         var cached = 0;
         var toProcess = 0;
+        var cachedJson = getCachedJson();
 
         // If there is no cached response and there are JavaScript code snippets
         // then process them and perform any call-backs required.
@@ -250,13 +292,17 @@ fiftyoneDegreesManager = function() {
                     toProcess++;
                 }
 
-                var isCached = sessionStorage &&
-                    sessionStorage.getItem(sessionKey) &&
+                var isCached = cachedJson &&
                     sessionStorage.getItem(sessionKey + "_property_" + name);
 
                 // If the property has already been processed then skip it.
                 if (isCached) {
                     cached++;
+                    // Record it as started so that hasJSFunctions agrees this
+                    // snippet will not run in this page view. If it disagreed,
+                    // loadParsedJSON would hand back to a call to process that
+                    // does nothing and returns to loadParsedJSON again.
+                    jsPropertiesStarted.push(name);
                     continue;
                 }
 
@@ -316,10 +362,15 @@ fiftyoneDegreesManager = function() {
                     if (name === "device.javascripthardwareprofile") {
                         var hrw = getFodSavedValues();
                         if (hrw && !hrw["51D_ProfileIds"]) {
-                            // find and remove name from jsPropertiesStarted
-                            var propIndex = jsPropertiesStarted.indexOf(name);
-                            if (propIndex > -1) {
-                                jsPropertiesStarted.splice(index, 1);
+                            // The snippet produced no profile, so the flag it
+                            // has just written must not survive. With the key
+                            // stable it would otherwise mark the property as
+                            // done for the rest of the tab session and it would
+                            // never be attempted again. The name stays in
+                            // jsPropertiesStarted so that only the next page
+                            // view retries it, not this one.
+                            if (sessionStorage) {
+                                sessionStorage.removeItem(sessionKey + "_property_" + name);
                             }
                             started--;
                             toProcess--;
@@ -329,20 +380,17 @@ fiftyoneDegreesManager = function() {
             }
         }
 
-        if ((cached === toProcess || started === 0) && sessionStorage)  {
-            var cachedResponse = sessionStorage.getItem(sessionKey);
-            if (cachedResponse) {
-                var cachedJson = null;
-                try {
-                    cachedJson = JSON.parse(cachedResponse);
-                } catch (err) {
-                    clearCache();
-                }
-                if (cachedJson) {
-                    loadParsedJSON(resolve, reject, mergeCached(cachedJson));
-                    executeCallback = false;
-                }
-            }
+        if ((cached === toProcess || started === 0) && cachedJson)  {
+            var merged = mergeCached(cachedJson);
+            // Deferred so that handlers registered through onChange after the
+            // constructor returns are in place before the change is announced.
+            // The request path is asynchronous and gets that for free; a cache
+            // hit resolves inside the constructor, where changeFuncs is still
+            // empty.
+            setTimeout(function() {
+                loadParsedJSON(resolve, reject, merged);
+            }, 0);
+            executeCallback = false;
         }
 
         if (started === 0) {
@@ -390,13 +438,27 @@ fiftyoneDegreesManager = function() {
 {{/_supportsFetch}}
 {{/_updateEnabled}}
 
-    // Check if the JSON object still has any JavaScript snippets to run.
+    // Check if the JSON object still has any JavaScript snippets to run. The
+    // conditions here must match the ones processJsProperties runs a snippet
+    // under: if this says yes and processJsProperties then does nothing,
+    // loadParsedJSON calls process and is called back into forever.
     var hasJSFunctions = function() {
-        for (var i = i; i < json.javascriptProperties; i++) {
-            var body = getFromJson(json.javascriptProperties[i]);
-            if (body !== undefined && body.length > 0) {
+        var jsProperties = json.javascriptProperties;
+        if (jsProperties === undefined || jsProperties === null) {
+            return false;
+        }
+        for (var i = 0; i < jsProperties.length; i++) {
+            var name = jsProperties[i];
+            if (jsPropertiesStarted.indexOf(name) !== -1) {
+                continue;
+            }
+            if (getFromJson(name + 'delayexecution', false, true) === true) {
+                continue;
+            }
+            var body = getFromJson(name);
+            if (typeof body === "string" && body.length > 0) {
                 return true;
-                }
+            }
         }
         return false;
     }
@@ -415,21 +477,10 @@ fiftyoneDegreesManager = function() {
         }
     }
 
-{{#_updateEnabled}}
-    // Process the response as json and call the resolve method.
-    var loadJSON = function(resolve, reject, responseText) {
-        var newJson;
-        try {
-            newJson = JSON.parse(responseText);
-        } catch(err) {
-            clearCache();
-            reject(new Error("Invalid JSON - the endpoint is likely setup incorrectly", { cause: err }));
-            return;
-        }
-        loadParsedJSON(resolve, reject, newJson);
-    }
-
-    // Continues with an already parsed payload.
+    // Continues with an already parsed payload. Defined outside the update
+    // section because the cached branch of processJsProperties calls it, and
+    // with the key no longer carrying the session id a payload cached by an
+    // update-enabled render can still be present when this one is rendered.
     var loadParsedJSON = function(resolve, reject, newJson) {
         json = newJson;
 
@@ -448,6 +499,20 @@ fiftyoneDegreesManager = function() {
             fireChangeFuncs(json);
             resolve(json);
         }
+    }
+
+{{#_updateEnabled}}
+    // Process the response as json and call the resolve method.
+    var loadJSON = function(resolve, reject, responseText) {
+        var newJson;
+        try {
+            newJson = JSON.parse(responseText);
+        } catch(err) {
+            clearCache();
+            reject(new Error("Invalid JSON - the endpoint is likely setup incorrectly", { cause: err }));
+            return;
+        }
+        loadParsedJSON(resolve, reject, newJson);
     }
 
     // Sends a POST request to the call-back URL to retrieve and updated
