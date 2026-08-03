@@ -38,6 +38,12 @@ fiftyoneDegreesManager = function() {
     // Array of JavaScript properties that have started evaluation.
     var jsPropertiesStarted = [];
 
+    // Properties whose snippets have run but whose evidence has not yet reached
+    // the server. They are flagged in session storage only once the response
+    // they feed is cached, so a flag can never be present without the payload
+    // it belongs to.
+    var jsPropertiesPending = [];
+
     // startsWith polyfill.
     var startsWith = function(source, searchValue) {
         return source.lastIndexOf(searchValue, 0) === 0;
@@ -233,8 +239,6 @@ fiftyoneDegreesManager = function() {
     var processJsProperties = function(resolve, reject, jsProperties, ignoreDelayFlag) {
         var executeCallback = true;
         var started = 0;
-        var cached = 0;
-        var toProcess = 0;
         var cachedJson = getCachedJson();
 
         // If there is no cached response and there are JavaScript code snippets
@@ -257,17 +261,11 @@ fiftyoneDegreesManager = function() {
                 }
                 var body = getFromJson(name);
 
-                // If there is a body then this property should be processed.
-                if (body) {
-                    toProcess++;
-                }
-
                 var isCached = cachedJson &&
                     sessionStorage.getItem(sessionKey + "_property_" + name);
 
                 // If the property has already been processed then skip it.
                 if (isCached) {
-                    cached++;
                     // Record it as started so that hasJSFunctions agrees this
                     // snippet will not run in this page view. If it disagreed,
                     // loadParsedJSON would hand back to a call to process that
@@ -321,9 +319,12 @@ fiftyoneDegreesManager = function() {
                         func();
                     }
 
-                    if (sessionStorage) {
-                        sessionStorage.setItem(sessionKey + "_property_" + name, true)
-                    }
+                    // Held until the response this snippet feeds is cached.
+                    // Flagging it here instead would leave the flag behind when
+                    // the page is left before the request completes, and an
+                    // older cached payload would then validate it. Within this
+                    // page view jsPropertiesStarted already stops it re-running.
+                    jsPropertiesPending.push(name);
 
                     // If the property is `javascripthardwareprofile` then check if the
                     // profile has been set. If not then remove current property from
@@ -332,25 +333,28 @@ fiftyoneDegreesManager = function() {
                     if (name === "device.javascripthardwareprofile") {
                         var hrw = getFodSavedValues();
                         if (hrw && !hrw["51D_ProfileIds"]) {
-                            // The snippet produced no profile, so the flag it
-                            // has just written must not survive. With the key
-                            // stable it would otherwise mark the property as
+                            // The snippet produced no profile, so it must not be
+                            // flagged when the response is cached. With the key
+                            // stable a flag would otherwise mark the property as
                             // done for the rest of the tab session and it would
                             // never be attempted again. The name stays in
                             // jsPropertiesStarted so that only the next page
                             // view retries it, not this one.
-                            if (sessionStorage) {
-                                sessionStorage.removeItem(sessionKey + "_property_" + name);
+                            var pendingIndex = jsPropertiesPending.indexOf(name);
+                            if (pendingIndex > -1) {
+                                jsPropertiesPending.splice(pendingIndex, 1);
                             }
                             started--;
-                            toProcess--;
                         }
                     }
                 }
             }
         }
 
-        if ((cached === toProcess || started === 0) && cachedJson)  {
+        // Only when nothing has started: a snippet that has run has evidence the
+        // cached payload cannot account for, so completing from the cache here
+        // would suppress the request that carries it.
+        if (started === 0 && cachedJson)  {
             loadParsedJSON(resolve, reject, mergeCached(cachedJson));
             executeCallback = false;
         }
@@ -571,10 +575,18 @@ fiftyoneDegreesManager = function() {
             var responseText = xhr.responseText;
 
 {{/_supportsFetch}}
-            // Cache the response text.
+            // Cache the response text, and flag the snippets it accounts for at
+            // the same moment, so that the two cannot disagree. Cleared before
+            // loadJSON, which can re-enter processJsProperties and queue names
+            // for the next request.
             if (sessionStorage) {
                 sessionStorage.setItem(sessionKey, responseText);
+                for (var pending = 0; pending < jsPropertiesPending.length; pending++) {
+                    sessionStorage.setItem(
+                        sessionKey + "_property_" + jsPropertiesPending[pending], true);
+                }
             }
+            jsPropertiesPending = [];
             // Load the JSON object from the response text
             loadJSON(resolve, reject, responseText);
             // Increment the sequence on a successful request
