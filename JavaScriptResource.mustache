@@ -65,25 +65,6 @@ fiftyoneDegreesManager = function() {
         }
     }
 
-    var loadParameters = function() {
-        if (sessionStorage) {
-            var parametersString = sessionStorage.getItem(sessionKey + "_parameters");
-            if (parametersString) {
-                // Merge rather than replace: parameters is rendered from this
-                // page view's own query evidence and must win over anything a
-                // previous page view stored under the same key.
-                var storedParameters = JSON.parse(parametersString);
-                for (var name in storedParameters) {
-                    if (storedParameters.hasOwnProperty(name) &&
-                        parameters.hasOwnProperty(name) === false) {
-                        parameters[name] = storedParameters[name];
-                    }
-                }
-            }
-        }
-        return parameters;
-    }
-
     // Read the cached payload, or null when there is none or it cannot be used.
     // An entry that does not parse into an object is cleared here rather than
     // ignored: this runs before the '_property_' flags are read, so a bad entry
@@ -143,17 +124,6 @@ fiftyoneDegreesManager = function() {
             }
         });
         return json;
-    }
-
-    var saveParameters = function(sourceParams) {
-        if (sourceParams) {
-            parameters = sourceParams
-        }
-
-        if (sessionStorage) {
-            var parametersString = JSON.stringify(parameters);
-            sessionStorage.setItem(sessionKey + "_parameters", parametersString);
-        }
     }
 
     // Get stored values with the '51D_' prefix that have been added to the request
@@ -521,7 +491,11 @@ fiftyoneDegreesManager = function() {
     // returned with a success status code. If there was a problem then the
     // session storage items are invalidated and reject is called.
     var processRequest = function(resolve, reject){
-        loadParameters();
+        // parameters is rendered from this page view's own query evidence, so
+        // it is already what the refresh should report and nothing from an
+        // earlier page view belongs in it. The values the snippets produce are
+        // the one thing that does carry over, and they come from their own
+        // storage below rather than from a stored copy of this object.
 
         // Get additional parameters in case they are not sent
         // by the browser.
@@ -530,8 +504,6 @@ fiftyoneDegreesManager = function() {
             var parts = savedValueParams[savedValueIndex].split('=');
             parameters[parts[0]] = parts[1];
         }
-
-        saveParameters();
 
         var params = [];
         for (var param in parameters) {
