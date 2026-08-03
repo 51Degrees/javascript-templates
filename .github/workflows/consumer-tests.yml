@@ -1,0 +1,82 @@
+name: Consumer tests
+
+# The templates are consumed as a submodule, so a change here is only ever
+# exercised by the SDKs that embed it. This builds one of them against the
+# revision under review and runs the tests that drive the template in a real
+# browser, which is the only place its behaviour is visible.
+
+on:
+  pull_request:
+    paths:
+      - '**.mustache'
+      - '.github/workflows/consumer-tests.yml'
+  workflow_dispatch:
+    inputs:
+      pipeline-dotnet-ref:
+        description: Branch, tag or SHA of pipeline-dotnet to test against
+        required: false
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  pipeline-dotnet:
+    name: pipeline-dotnet JavaScript builder
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the template under review
+        uses: actions/checkout@v4
+        with:
+          path: template
+
+      - name: Check out pipeline-dotnet
+        uses: actions/checkout@v4
+        with:
+          repository: 51Degrees/pipeline-dotnet
+          ref: ${{ inputs.pipeline-dotnet-ref || 'main' }}
+          submodules: recursive
+          path: consumer
+
+      - name: Swap in the template under review
+        run: |
+          set -euo pipefail
+          dest=consumer/FiftyOne.Pipeline.Elements/FiftyOne.Pipeline.JavaScriptBuilderElement/Templates
+          if [ ! -d "$dest" ]; then
+            echo "::error::$dest is missing - the submodule has moved and this workflow needs updating"
+            exit 1
+          fi
+          cp template/*.mustache "$dest/"
+          # The templates are embedded resources. If the copy changed nothing
+          # then the run would exercise the revision pipeline-dotnet pins and
+          # report a pass that says nothing about this pull request.
+          if git -C "$dest" diff --quiet; then
+            echo "::notice::identical to the revision pipeline-dotnet pins, nothing swapped in"
+          else
+            git -C "$dest" --no-pager diff --stat
+          fi
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Report the browser under test
+        run: |
+          google-chrome --version || echo "::warning::no google-chrome on the runner"
+          chromedriver --version || echo "::warning::no chromedriver on the runner"
+
+      - name: Run the JavaScript builder tests
+        working-directory: consumer
+        run: >
+          dotnet test -c Release
+          FiftyOne.Pipeline.Elements/FiftyOne.Pipeline.JavaScriptBuilderElementTests/FiftyOne.Pipeline.JavaScriptBuilderElementTests.csproj
+          --logger "console;verbosity=normal"
+          --logger "trx;LogFileName=results.trx"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-dotnet-results
+          path: consumer/**/TestResults/*.trx
+          if-no-files-found: warn
