@@ -381,15 +381,7 @@ fiftyoneDegreesManager = function() {
         }
 
         if ((cached === toProcess || started === 0) && cachedJson)  {
-            var merged = mergeCached(cachedJson);
-            // Deferred so that handlers registered through onChange after the
-            // constructor returns are in place before the change is announced.
-            // The request path is asynchronous and gets that for free; a cache
-            // hit resolves inside the constructor, where changeFuncs is still
-            // empty.
-            setTimeout(function() {
-                loadParsedJSON(resolve, reject, merged);
-            }, 0);
+            loadParsedJSON(resolve, reject, mergeCached(cachedJson));
             executeCallback = false;
         }
 
@@ -750,6 +742,15 @@ fiftyoneDegreesManager = function() {
 
 	this.onChange = function(resolve) {
 		changeFuncs.push(resolve);
+		// A page view served from the session storage cache finishes inside
+		// the constructor, before page code can get here, so a handler
+		// registered afterwards would never hear about a change that has
+		// already happened. Catching it up is what 'complete' already does.
+		if ((completed || failed) &&
+			typeof resolve === 'function' &&
+			resolve.length === 1) {
+			resolve(json);
+		}
 	}
 
     this.complete = function(resolve, properties) {
