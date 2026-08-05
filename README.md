@@ -53,6 +53,40 @@ document.cookie = `51D_PropertyName=START${window.middle}END`; // Concatenating 
 
 `'unsafe-eval'` source is needed because the template loads and executes dynamic javascript code snippets relying on JavaScript Function API which is in the eval() family. The snippets are part of the data file and are frequently updated to support latest changes in the browsers. Snippet execution may cause multiple server calls to load more dynamic code (in theory, in practice it usually comes down to a single server call) - thus this code can not be statically included in the template and has to be loaded dynamically as part of the JSON response of the server. 
 
+## Page-supplied evidence
+
+A page can pass extra evidence for the JSON refresh request by defining a
+plain string-to-string object named `<ObjectName>Evidence` (default
+`fodEvidence`, named after the JavaScriptBuilderElement `ObjectName` option)
+before the script executes:
+
+    <script>
+      window.fodEvidence = { 'id.email': 'user@example.com' };
+    </script>
+    <script src=".../resource.js?id.usage=personalized"></script>
+
+Each key and value is url-encoded and appended to the form-data body of the
+POST request. The parameters the script URL itself was requested with are
+re-sent as form fields in that same body, so a key given in both places
+arrives twice under the same name and which one the server uses is left to
+its form parsing: do not duplicate keys across the two. For the same reason
+avoid the keys the request already carries, `session-id` and `sequence`.
+
+Values must be strings. Anything else is coerced by the usual JavaScript
+string conversion before it is sent, so a nested object arrives as
+`[object Object]`, and an array assigned to `<ObjectName>Evidence` is sent
+with its indices as the keys.
+
+The evidence itself is only ever put in that request body, never in the URL,
+a cookie or web storage, which is what makes it usable for sensitive values
+such as `id.email`. The JSON response it produces is a different matter: it
+is cached in session storage verbatim for the lifetime of the tab, so any
+personalised content the server returns is stored on the device.
+
+Evidence is only sent when the script makes its JSON refresh request. With
+updates disabled, or when a cached response covers the page view, there is
+no request to carry it.
+
 ## Shipping / Deployment
 
 This repo is not a stand-alone package, but is shipped as part of and used by each of the following repositories / packages:
