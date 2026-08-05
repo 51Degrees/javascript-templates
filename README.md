@@ -65,14 +65,27 @@ before the script executes:
     </script>
     <script src=".../resource.js?id.usage=personalized"></script>
 
-Each entry is url-encoded and appended to the form-data body of the POST
-request. The values are never written to the URL, cookies or web storage, so
-this is the supported way to pass sensitive evidence such as `id.email`.
-Query-string parameters of the script URL override same-named form fields on
-the server, so do not duplicate keys across both. The values are sent only
-when the script makes its JSON refresh request; with updates disabled or a
-cached response there is no request to carry them. Avoid keys that clash
-with the request's own fields, such as `session-id` or `sequence`.
+Each key and value is url-encoded and appended to the form-data body of the
+POST request. The parameters the script URL itself was requested with are
+re-sent as form fields in that same body, so a key given in both places
+arrives twice under the same name and which one the server uses is left to
+its form parsing: do not duplicate keys across the two. For the same reason
+avoid the keys the request already carries, `session-id` and `sequence`.
+
+Values must be strings. Anything else is coerced by the usual JavaScript
+string conversion before it is sent, so a nested object arrives as
+`[object Object]`, and an array assigned to `<ObjectName>Evidence` is sent
+with its indices as the keys.
+
+The evidence itself is only ever put in that request body, never in the URL,
+a cookie or web storage, which is what makes it usable for sensitive values
+such as `id.email`. The JSON response it produces is a different matter: it
+is cached in session storage verbatim for the lifetime of the tab, so any
+personalised content the server returns is stored on the device.
+
+Evidence is only sent when the script makes its JSON refresh request. With
+updates disabled, or when a cached response covers the page view, there is
+no request to carry it.
 
 ## Shipping / Deployment
 
