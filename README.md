@@ -53,26 +53,12 @@ document.cookie = `51D_PropertyName=START${window.middle}END`; // Concatenating 
 
 `'unsafe-eval'` source is needed because the template loads and executes dynamic javascript code snippets relying on JavaScript Function API which is in the eval() family. The snippets are part of the data file and are frequently updated to support latest changes in the browsers. Snippet execution may cause multiple server calls to load more dynamic code (in theory, in practice it usually comes down to a single server call) - thus this code can not be statically included in the template and has to be loaded dynamically as part of the JSON response of the server. 
 
-## Public object contract
-
-The generated script creates a global object (default name `fod`, set by the
-JavaScriptBuilderElement `ObjectName` option). Besides the existing
-`complete(callback)` / `onChange(callback)` API the object exposes:
-
-- `isComplete` - `false` while evidence collection is in flight, `true` once
-  processing finished (successfully or not; see `data.errors`).
-- `data` - the latest raw JSON payload. Unlike the property getters it keeps
-  missing values as `null` instead of substituting the null-reason text.
-
-Top-level payload keys are mirrored onto the object, so response payloads
-must not use keys named `data`, `isComplete`, `complete`, `onChange`,
-`promise` or `sessionId`.
-
 ## Page-supplied evidence
 
 A page can pass extra evidence for the JSON refresh request by defining a
 plain string-to-string object named `<ObjectName>Evidence` (default
-`fodEvidence`) before the script executes:
+`fodEvidence`, named after the JavaScriptBuilderElement `ObjectName` option)
+before the script executes:
 
     <script>
       window.fodEvidence = { 'id.email': 'user@example.com' };
