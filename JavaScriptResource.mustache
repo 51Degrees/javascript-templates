@@ -98,8 +98,18 @@ fiftyoneDegreesManager = function() {
         return cachedJson;
     }
 
-    // Cached values fill the gaps in the payload rendered for this page view;
-    // they never override a value the server has just supplied.
+    // Suffix the server appends to a property name to carry the reason that
+    // property has no value.
+    var nullReasonSuffix = 'nullreason';
+
+    // Cached values take precedence over the payload rendered for this page
+    // view. The cached payload is the response to a request that carried the
+    // JavaScript evidence, whereas the payload rendered into this page view was
+    // answered from headers alone, so the cached value is the better-informed
+    // one. Leaving the rendered value in place would discard exactly what the
+    // cache exists to preserve: a property the server can answer from headers
+    // is not null, so its ambiguous answer would survive - on an iPhone
+    // 'hardwarename' is the whole candidate list rather than the resolved model.
     var mergeCached = function(cachedJson) {
         Object.getOwnPropertyNames(cachedJson).forEach(function(group) {
             var cachedGroup = cachedJson[group];
@@ -124,8 +134,23 @@ fiftyoneDegreesManager = function() {
                 return;
             }
             for (var name in cachedGroup) {
-                if (freshGroup[name] === null || freshGroup[name] === undefined) {
-                    freshGroup[name] = cachedGroup[name];
+                // Reasons are carried with the value they describe, below, so
+                // that a cached reason is never left next to a value it did not
+                // arrive with.
+                if (endsWith(name, nullReasonSuffix)) {
+                    continue;
+                }
+                // A cached null says only that the earlier response could not
+                // answer either, so it is not worth losing the fresh value for.
+                if (cachedGroup[name] === null || cachedGroup[name] === undefined) {
+                    continue;
+                }
+                freshGroup[name] = cachedGroup[name];
+                var reasonName = name + nullReasonSuffix;
+                if (cachedGroup[reasonName] === undefined) {
+                    delete freshGroup[reasonName];
+                } else {
+                    freshGroup[reasonName] = cachedGroup[reasonName];
                 }
             }
         });
