@@ -98,8 +98,18 @@ fiftyoneDegreesManager = function() {
         return cachedJson;
     }
 
-    // Cached values fill the gaps in the payload rendered for this page view;
-    // they never override a value the server has just supplied.
+    // Suffix the server appends to a property name to carry the reason that
+    // property has no value.
+    var nullReasonSuffix = 'nullreason';
+
+    // Cached values take precedence over the payload rendered for this page
+    // view. The cached payload is the response to a request that carried the
+    // JavaScript evidence, whereas the payload rendered into this page view was
+    // answered from headers alone, so the cached value is the better-informed
+    // one. Leaving the rendered value in place would discard exactly what the
+    // cache exists to preserve: a property the server can answer from headers
+    // is not null, so its ambiguous answer would survive - on an iPhone
+    // 'hardwarename' is the whole candidate list rather than the resolved model.
     var mergeCached = function(cachedJson) {
         Object.getOwnPropertyNames(cachedJson).forEach(function(group) {
             var cachedGroup = cachedJson[group];
@@ -124,8 +134,23 @@ fiftyoneDegreesManager = function() {
                 return;
             }
             for (var name in cachedGroup) {
-                if (freshGroup[name] === null || freshGroup[name] === undefined) {
-                    freshGroup[name] = cachedGroup[name];
+                // Reasons are carried with the value they describe, below, so
+                // that a cached reason is never left next to a value it did not
+                // arrive with.
+                if (endsWith(name, nullReasonSuffix)) {
+                    continue;
+                }
+                // A cached null says only that the earlier response could not
+                // answer either, so it is not worth losing the fresh value for.
+                if (cachedGroup[name] === null || cachedGroup[name] === undefined) {
+                    continue;
+                }
+                freshGroup[name] = cachedGroup[name];
+                var reasonName = name + nullReasonSuffix;
+                if (cachedGroup[reasonName] === undefined) {
+                    delete freshGroup[reasonName];
+                } else {
+                    freshGroup[reasonName] = cachedGroup[reasonName];
                 }
             }
         });
@@ -237,9 +262,13 @@ fiftyoneDegreesManager = function() {
     // the JavaScript property is added to session storage. The complete flag is
     // set to true when there is no further JavaScript to be processed.
     var processJsProperties = function(resolve, reject, jsProperties, ignoreDelayFlag) {
-        var executeCallback = true;
         var started = 0;
         var cachedJson = getCachedJson();
+
+        // Held for the duration of the loop so that a snippet which invokes its
+        // callback synchronously cannot take the counter to zero, and dispatch a
+        // request, while snippets later in the list have not been run yet.
+        callbackCounter++;
 
         // If there is no cached response and there are JavaScript code snippets
         // then process them and perform any call-backs required.
@@ -307,7 +336,6 @@ fiftyoneDegreesManager = function() {
                             "}"
                         );
                         func(completedCallback, resolve, reject);
-                        executeCallback = false;
                     } else {
                         func = new Function(
                             "try {\n" +
@@ -351,22 +379,27 @@ fiftyoneDegreesManager = function() {
             }
         }
 
-        // Only when nothing has started: a snippet that has run has evidence the
-        // cached payload cannot account for, so completing from the cache here
-        // would suppress the request that carries it.
-        if (started === 0 && cachedJson)  {
-            loadParsedJSON(resolve, reject, mergeCached(cachedJson));
-            executeCallback = false;
-        }
-
         if (started === 0) {
-            executeCallback = false;
+            // Nothing started, so nothing in the loop incremented the counter.
+            // Release the hold without dispatching a request. This must stay
+            // ahead of loadParsedJSON, which can re-enter this function through
+            // process(): if the outer hold were still counted the nested round
+            // could never reach zero and would never dispatch.
+            callbackCounter--;
+
+            // A snippet that has run has evidence the cached payload cannot
+            // account for, which is why completing from the cache is confined
+            // to this branch: doing it after a snippet started would suppress
+            // the request that carries that evidence.
+            if (cachedJson) {
+                loadParsedJSON(resolve, reject, mergeCached(cachedJson));
+            }
+
             failed = false;
             completed = true;
-        }
-
-        if (executeCallback) {
-            callbackCounter = 1;
+        } else {
+            // Release the hold. If every snippet that started has already called
+            // back this dispatches now; otherwise the last callback to arrive does.
             completedCallback(resolve, reject);
         }
     };
