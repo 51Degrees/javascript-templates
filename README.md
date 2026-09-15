@@ -127,6 +127,32 @@ and the record of the last request's inputs. Each one's inputs differ from
 the record the other wrote, so they clear each other's entry on every page
 view and each pays a full round it did not need.
 
+## Tests
+
+The template is not executable on its own, and every port only sees it once
+it has been embedded, so `tests/template-tests.js` renders it here with a
+model matching the one the .NET builder passes and then reads and drives the
+rendered script. It proves three things. The formatting constraints each
+port's own tests enforce, being the closing constructor line, the
+`document.cookie` count, no mustache braces left in the output and no
+trailing whitespace. That the script evaluates where there is no `window`,
+`localStorage` or `sessionStorage` at all, which is the environment the
+cloud's NiL.JS builder runs it in. And the behaviour a 51Did depends on,
+driven against a fake endpoint, being one request body with each key sent
+once, the record of the inputs that throws away a stale answer, the visitor's
+answer reaching the request, `refresh()`, and the failure paths.
+
+Run it with Node 24 from the `tests` directory.
+
+    cd tests
+    npm ci
+    npm test
+
+Each check prints a line and the last line gives the totals. The
+`Template tests` workflow runs the same command on every pull request, and
+the `Consumer tests` workflow builds pipeline-dotnet against the template and
+runs the tests that drive it in a real browser.
+
 ## Shipping / Deployment
 
 This repo is not a stand-alone package, but is shipped as part of and used by each of the following repositories / packages:
