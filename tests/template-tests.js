@@ -1095,6 +1095,78 @@ function logged(result, text) {
         seen !== null && seen.fodid.fodid === 'ABC123', JSON.stringify(seen));
 }
 
+{
+    // 19. The exit taken where the browser makes no cross origin request at
+    //     all, so createCORSRequest answers null. It has to end the round the
+    //     way every other failure exit does, or an answer that arrives before
+    //     the failure is reported is left waiting on a round that never ends.
+    //     With no XMLHttpRequest in the context at all, and no XDomainRequest
+    //     either, createCORSRequest catches the reference error and answers
+    //     null, which is the exit under test.
+    const tab = makeTab();
+    const view = pageView(tab, {
+        model: {
+            _userPrompt: true, _supportsFetch: false,
+            _parameters: '{"mark":"one"}'
+        },
+        endpoint: { fetch: undefined, bodies: [], count: () => 0 }
+    });
+    await settle(12);
+    check('the exit with no cross origin support clears the cache',
+        Object.keys(tab.session.data).length === 0,
+        JSON.stringify(Object.keys(tab.session.data)));
+    check('the message that exit reports is unchanged',
+        logged(view, 'CORS not supported'), JSON.stringify(view.log));
+
+    // The same exit on a page whose visitor answers in the same turn as the
+    // construction, before the failure has been reported. A round that never
+    // ended swallows that refresh. The stub throws on its first construction
+    // and works afterwards, so the request the refresh makes can be counted.
+    const bodies = [];
+    let constructions = 0;
+    function XhrStub() {
+        constructions++;
+        if (constructions === 1) { throw new Error('no XMLHttpRequest here'); }
+        this.status = 200;
+        this.responseText = '';
+        this.withCredentials = false;
+    }
+    XhrStub.prototype.open = function () {};
+    XhrStub.prototype.setRequestHeader = function () {};
+    XhrStub.prototype.send = function (body) {
+        bodies.push(body);
+        const self = this;
+        setTimeout(function () {
+            self.status = 200;
+            self.responseText = didPayload;
+            self.onload();
+        }, 0);
+    };
+
+    const tab2 = makeTab();
+    const answered = pageView(tab2, {
+        model: {
+            _userPrompt: true, _supportsFetch: false,
+            _parameters: '{"mark":"one"}'
+        },
+        endpoint: {
+            fetch: undefined, bodies: bodies,
+            count: () => bodies.length
+        },
+        globals: { XMLHttpRequest: XhrStub }
+    });
+    answered.context.__fire('51d-pmp-preference', { preference: 'standard' });
+    await settle(12);
+    check('an answer arriving at that exit still gets a request',
+        bodies.length === 1 &&
+        (bodies[0] || '').indexOf('id.usage=standard') !== -1,
+        bodies.length + ' ' + bodies[0]);
+    check('the identifier from that request reaches the object',
+        answered.context.fod.fodid &&
+        answered.context.fod.fodid.fodid === 'ABC123',
+        JSON.stringify(answered.context.fod.fodid));
+}
+
 
 // ---------------------------------------------------------------------------
 section('An answer known at construction, with no snippet that saves a value');

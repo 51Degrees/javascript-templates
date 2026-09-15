@@ -1091,10 +1091,11 @@ fiftyoneDegreesManager = function() {
         // Request callback URL with additional parameters.
         var xhr = createCORSRequest('POST', '{{{_url}}}');
 
-        // If there is no support for HTTP requests then call reject and throw
-        // a no CORS support error.
+        // With no support for HTTP requests there is nothing to send. This
+        // exit goes through failRequest like every other failure exit, or
+        // the round is never ended and a refresh waiting on it is dropped.
         if (!xhr) {
-            reject(new Error('CORS not supported'));
+            failRequest(reject, new Error('CORS not supported'));
             return;
         }
 
