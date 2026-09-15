@@ -62,10 +62,6 @@ fiftyoneDegreesManager = function() {
     // refresh whose inputs match it has nothing to ask for.
     var lastSent = null;
 
-    // The snippet values a failed request cleared from storage, held for the
-    // rest of this page view so that a refresh still carries them.
-    var keptValues = {};
-
     // Set when an answer arrives while a round is in progress. That round's
     // own next request is built from the answer as it stands, so it carries
     // the answer already. Only an answer that arrives after the round's last
@@ -316,18 +312,7 @@ fiftyoneDegreesManager = function() {
         // The values the snippets produced. They are the one thing that
         // carries over from an earlier page view, and they come from their
         // own storage rather than from a stored copy of the parameters.
-        // Those a failed request cleared come first, so that a value a snippet
-        // stored since replaces them.
-        var savedValues = {};
-        var storedValues = getFodSavedValues();
-        var sources = [keptValues, storedValues];
-        for (var s = 0; s < sources.length; s++) {
-            for (var sourceKey in sources[s]) {
-                if (Object.prototype.hasOwnProperty.call(sources[s], sourceKey)) {
-                    savedValues[sourceKey] = sources[s][sourceKey];
-                }
-            }
-        }
+        var savedValues = getFodSavedValues();
         for (var savedKey in savedValues) {
             if (Object.prototype.hasOwnProperty.call(savedValues, savedKey)) {
                 body[encodePart(savedKey)] = encodePart(savedValues[savedKey]);
@@ -1028,18 +1013,7 @@ fiftyoneDegreesManager = function() {
     // is set here rather than left to catchError, because on the promise path
     // catchError runs a turn later and until then the round would look as
     // though it were still running.
-    //
-    // The snippet values are kept in memory first. That later request is a
-    // refresh, which does not run the snippets again, and without them it
-    // would create the 51Did from the headers alone. Storage is still
-    // cleared, so the next page view runs the snippets again.
     var failRequest = function(reject, error) {
-        var values = getFodSavedValues();
-        for (var key in values) {
-            if (Object.prototype.hasOwnProperty.call(values, key)) {
-                keptValues[key] = values[key];
-            }
-        }
         clearCache();
         failed = true;
         reject(error);
