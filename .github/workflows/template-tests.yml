@@ -1,0 +1,37 @@
+name: Template tests
+
+# The template is not executable on its own, so these checks render it with a
+# model matching the one the .NET builder passes and then drive the rendered
+# script against a fake endpoint. They take seconds and they reach what the
+# consumer run cannot, being the environment with no window that the cloud's
+# NiL.JS builder evaluates the script in, and the failure paths a browser test
+# cannot force.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  template-tests:
+    name: Render and drive the template
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the template under review
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: tests/package-lock.json
+
+      - name: Install the renderer
+        working-directory: tests
+        run: npm ci
+
+      - name: Render and drive the template
+        working-directory: tests
+        run: npm test
