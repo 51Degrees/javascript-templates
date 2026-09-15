@@ -1327,6 +1327,62 @@ section('An answer known at construction, with no snippet that saves a value');
     }
 }
 
+
+
+// ---------------------------------------------------------------------------
+section('Every snippet that runs leaves a result');
+// ---------------------------------------------------------------------------
+{
+    // The shape of the high entropy values snippet that matters, being a store
+    // inside a branch the browser does not take. The snippet runs, stores
+    // nothing, and the server hears nothing about it unless an empty result is
+    // stored for the name.
+    const quietSnippet =
+        'if (window.__neverSet) { document.cookie = "51D_quiet=" + "x"; }';
+    const quietPayload = JSON.stringify({
+        device: { ismobile: true, quietjavascript: quietSnippet },
+        javascriptProperties: ['device.quietjavascript']
+    });
+
+    const tab = makeTab();
+    const view = pageView(tab, {
+        model: { _jsonObject: quietPayload },
+        responses: [secondPayload]
+    });
+    await settle(12);
+    check('a snippet that stores nothing still sends a result for its name',
+        (view.endpoint.bodies[0] || '').indexOf('51D_quiet=') !== -1,
+        view.endpoint.bodies[0]);
+    check('the result it sends is empty',
+        /(^|&)51D_quiet=(&|$)/.test(view.endpoint.bodies[0] || ''),
+        view.endpoint.bodies[0]);
+    check('the record beside the response carries that empty result',
+        (tab.session.data['fod_inputs'] || '').indexOf('51D_quiet=') !== -1,
+        tab.session.data['fod_inputs']);
+
+    // The second page view builds its inputs from the same stored values, so
+    // the record matches and the cached response stands. This holds either way
+    // and is here to catch an empty result written after the record rather
+    // than before it, which would clear the cache on every page view.
+    const second = pageView(tab, {
+        model: { _jsonObject: quietPayload },
+        responses: [secondPayload]
+    });
+    await settle(12);
+    check('a second page view with that snippet is served from the cache',
+        second.endpoint.count() === 0, 'count ' + second.endpoint.count());
+
+    // A snippet that does store a value must send the value, because the
+    // empty result is written before the snippet runs.
+    const tab2 = makeTab();
+    const stores = pageView(tab2, { responses: [secondPayload] });
+    await settle(12);
+    check('a snippet that stores a value sends the value, not an empty one',
+        (stores.endpoint.bodies[0] || '')
+            .indexOf('51D_testvalue=purple') !== -1,
+        stores.endpoint.bodies[0]);
+}
+
     console.log('\n' + checks + ' checks, ' + failures + ' failures');
     process.exit(failures === 0 ? 0 : 1);
 })();

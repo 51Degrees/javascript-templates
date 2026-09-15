@@ -772,6 +772,34 @@ fiftyoneDegreesManager = function() {
             let valueSetPrefix = new RegExp('document\\.cookie\\s*=\\s*(("([A-Za-z0-9_"\\s\\+]+)\\s*=\\s*"\\s*\\+\\s*([^\\s};]+))|(`([A-Za-z0-9_]+)\\s*=\\s*\\$\\{([^}]+)\\}`))', 'g');
             let session51DataPrefix = sessionKey + "_data_";
             let sessionSetPatch = 'window.sessionStorage["' + session51DataPrefix + '$3$6"]=$4$7';
+
+            // Store an empty result for each value a snippet sets that has
+            // none yet. An empty value is how the server is told the snippet
+            // ran and stored nothing, which is the only report it gets from a
+            // snippet whose interface is missing at run time, and without one
+            // the page waits for a result that never comes. Groups 3 and 6 of
+            // the pattern the rewrite already uses hold the name.
+            let storeEmptyValues = function(snippet) {
+                let found;
+                valueSetPrefix.lastIndex = 0;
+                while ((found = valueSetPrefix.exec(snippet)) !== null) {
+                    let valueName = found[3] || found[6];
+                    if (!valueName) {
+                        continue;
+                    }
+                    try {
+                        if (typeof window !== 'undefined' &&
+                            window.sessionStorage &&
+                            window.sessionStorage.getItem(
+                                session51DataPrefix + valueName) === null) {
+                            window.sessionStorage[
+                                session51DataPrefix + valueName] = "";
+                        }
+                    } catch (err) {
+                        // Storage is blocked, so nothing is stored for it.
+                    }
+                }
+            };
             {{/_enableCookies}}
 
             // Execute each of the JavaScript property code snippets using the
@@ -816,6 +844,12 @@ fiftyoneDegreesManager = function() {
                     started++;
 
                     {{^_enableCookies}}
+                    // Before the snippet runs, so a value the snippet stores
+                    // replaces the empty one, and before the request is built,
+                    // so the empty one is in the record of that request's
+                    // inputs and the next page view computes the same record
+                    // and keeps its cache.
+                    storeEmptyValues(body);
                     body = body.replaceAll(valueSetPrefix, sessionSetPatch);
                     {{/_enableCookies}}
 
