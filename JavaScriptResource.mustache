@@ -1,11 +1,20 @@
 fiftyoneDegreesManager = function() {
     'use strict';
     var json = {{&_jsonObject}};
-    var parameters = {{&_parameters}};
+    // The query evidence of the script request, rendered by the builder and
+    // already url encoded by it. A factory rather than an object, so that
+    // every request body is built from a fresh copy and the rendered values
+    // are never changed in place.
+    var renderedParameters = function() { return {{&_parameters}}; };
     var sessionId = "{{&_sessionId}}";
     // The session id is deliberately not part of the key: it changes on
     // every request, and session storage is already scoped to one tab.
     var sessionKey = "{{_objName}}";
+
+    // Where the record of the last request's inputs is kept. It starts with
+    // the storage key and an underscore, so clearCache takes it away with
+    // everything else.
+    var inputsKey = sessionKey + "_inputs";
     this.sessionId = sessionId;
     var sequence = {{&_sequence}};
 
@@ -44,6 +53,11 @@ fiftyoneDegreesManager = function() {
     // it belongs to.
     var jsPropertiesPending = [];
 
+    // The record of the inputs of the last request this script dispatched,
+    // or of the request that produced the payload in session storage. A
+    // refresh whose inputs match it has nothing to ask for.
+    var lastSent = null;
+
     // startsWith polyfill.
     var startsWith = function(source, searchValue) {
         return source.lastIndexOf(searchValue, 0) === 0;
@@ -55,7 +69,10 @@ fiftyoneDegreesManager = function() {
     }
 
     var clearCache = function() {
-        if (sessionStorage) {
+        // Guarded with typeof because the script is also evaluated where
+        // session storage is not declared at all, which is how the cloud's
+        // two builder unit tests run it.
+        if (typeof sessionStorage !== 'undefined' && sessionStorage) {
             // Iterate backwards: removeItem shifts every later key down one
             // index, so a forward loop skips whichever key moves into the slot
             // just vacated.
@@ -77,7 +94,7 @@ fiftyoneDegreesManager = function() {
     // makes this page view execute the snippets again instead of completing
     // with neither the cached values nor a request.
     var getCachedJson = function() {
-        if (!sessionStorage) {
+        if (typeof sessionStorage === 'undefined' || !sessionStorage) {
             return null;
         }
         var cachedResponse = sessionStorage.getItem(sessionKey);
@@ -178,36 +195,137 @@ fiftyoneDegreesManager = function() {
         {{/_enableCookies}}
         {{^_enableCookies}}
         {
-            // Collect values from session storage
-            let session51DataPrefix = sessionKey + "_data_";
-            for(let i = 0, n = window.sessionStorage.length; i < n; ++i) {
-                let nextKey = window.sessionStorage.key(i);
-                if(startsWith(nextKey, session51DataPrefix)){
-                    let value = window.sessionStorage[nextKey];
-                    fodValues[nextKey.substring(session51DataPrefix.length)] = value;
+            // Collect values from session storage. Guarded because the
+            // request body is now built in the constructor as well as at
+            // dispatch, so this runs where there is no window at all and
+            // where the visitor has blocked storage.
+            try {
+                if (typeof window !== 'undefined' && window.sessionStorage) {
+                    let session51DataPrefix = sessionKey + "_data_";
+                    for(let i = 0, n = window.sessionStorage.length; i < n; ++i) {
+                        let nextKey = window.sessionStorage.key(i);
+                        if(startsWith(nextKey, session51DataPrefix)){
+                            let value = window.sessionStorage[nextKey];
+                            fodValues[nextKey.substring(session51DataPrefix.length)] = value;
+                        }
+                    }
                 }
+            } catch (err) {
+                // Storage is blocked, so there are no stored values.
             }
         };
         {{/_enableCookies}}
         return fodValues;
     };
 
-    // Extract key value pairs from the '51D_' prefixed values and concatenates
-    // them to form a query string for the subsequent json refresh.
-    var getParametersFromStorage = function() {
-        var fodValues = getFodSavedValues();
-        var keyValuePairs = [];
-        for (var key in fodValues) {
-            if (fodValues.hasOwnProperty(key)) {
-                // Url encode the value.
-                // This is done to ensure that invalid characters (e.g. = chars at the end of
-                // base 64 encoded strings) reach the server intact.
-                // The server will automatically decode the value before passing it into the
-                // Pipeline API.
-                keyValuePairs.push(key + "=" + encodeURIComponent(fodValues[key]));
+    // Url encode one key or one value for the request body. This is done so
+    // that invalid characters, such as the = at the end of a base 64 encoded
+    // string, reach the server intact, and the server decodes the value
+    // before passing it into the Pipeline API. The rendered parameters arrive
+    // already encoded by the builder, so they go into the map as they stand
+    // and everything added below is encoded as it is added, which leaves
+    // every pair encoded exactly once.
+    var encodePart = function(value) {
+        return encodeURIComponent(value);
+    };
+
+    // Build the map of everything a request body carries, each key once,
+    // later sources replacing earlier ones. The order is the rendered
+    // parameters of this page view, then the stored '51D_' values the
+    // snippets produced, then the evidence object the page supplied, read at
+    // this moment. Building one map rather than pushing two lists is what
+    // stops a key given both in the script URL and in the evidence object
+    // being sent twice, which the server keeps as a repeated form key that
+    // every reader then sees as absent.
+    var buildBody = function() {
+        var body = renderedParameters();
+
+        // The values the snippets produced. They are the one thing that
+        // carries over from an earlier page view, and they come from their
+        // own storage rather than from a stored copy of the parameters.
+        var savedValues = getFodSavedValues();
+        for (var savedKey in savedValues) {
+            if (Object.prototype.hasOwnProperty.call(savedValues, savedKey)) {
+                body[encodePart(savedKey)] = encodePart(savedValues[savedKey]);
             }
         }
-        return keyValuePairs;
+
+        // Additional evidence provided by the page. Sent in the request body
+        // only and never stored.
+        var pageEvidence = typeof window !== 'undefined' ?
+            window["{{_objName}}Evidence"] : undefined;
+        if (pageEvidence && typeof pageEvidence === "object") {
+            for (var evidenceKey in pageEvidence) {
+                if (Object.prototype.hasOwnProperty.call(pageEvidence, evidenceKey)) {
+                    body[encodePart(evidenceKey)] =
+                        encodePart(pageEvidence[evidenceKey]);
+                }
+            }
+        }
+
+        return body;
+    };
+
+    // The map as the wire sees it, one 'key=value' string per entry.
+    var toPairs = function(body) {
+        var pairs = [];
+        for (var key in body) {
+            if (Object.prototype.hasOwnProperty.call(body, key)) {
+                pairs.push(key + "=" + body[key]);
+            }
+        }
+        return pairs;
+    };
+
+    // The record of a request's inputs. The same pairs as the body, without
+    // the session id and the sequence, sorted so that the order the keys
+    // happened to be added in cannot make two identical requests look
+    // different, and joined the way the body joins them. It is kept as this
+    // plain string and is deliberately not hashed, because session storage on
+    // the publisher's origin is reachable only by the joint controllers,
+    // being the publisher and 51Degrees, and a hash would be read as a
+    // privacy measure when it is not one.
+    var toRecord = function(body) {
+        return toPairs(body).sort().join('&').replace(/%20/g, '+');
+    };
+
+    // The record of what this page view would send if it dispatched now.
+    var inputs = function() {
+        return toRecord(buildBody());
+    };
+
+    // Compare this page view's inputs with the record of the request that
+    // produced the entry in session storage. Runs once per script run, in the
+    // constructor, before the first round. Not inside process(), which is
+    // re-entered once per round and would clear the round's own values part
+    // way through an exchange.
+    var applyInputsRecord = function() {
+        if (typeof sessionStorage === 'undefined' || !sessionStorage) {
+            return;
+        }
+        var stored = null;
+        try {
+            stored = sessionStorage.getItem(inputsKey);
+        } catch (err) {
+            // Storage is blocked, so there is no record to compare with.
+            return;
+        }
+        if (!stored) {
+            return;
+        }
+        if (inputs() === stored) {
+            // The same inputs, so the stored answer may be reused and a later
+            // refresh that changes nothing has nothing to ask for.
+            lastSent = stored;
+        } else {
+            // Different inputs, so the payload, the flags and the values go
+            // and the snippets run again on this page view. A publisher who
+            // puts a cache buster in the script URL lands it in the rendered
+            // parameters and so invalidates on every page view, which is
+            // accepted because such a parameter already defeats the browser
+            // cache on the same response.
+            clearCache();
+        }
     };
 
     // Fetch a value safely from the json object. If a key somewhere down the
@@ -528,39 +646,18 @@ fiftyoneDegreesManager = function() {
     // returned with a success status code. If there was a problem then the
     // session storage items are invalidated and reject is called.
     var processRequest = function(resolve, reject){
-        // parameters is rendered from this page view's own query evidence, so
-        // it is already what the refresh should report and nothing from an
-        // earlier page view belongs in it. The values the snippets produce are
-        // the one thing that does carry over, and they come from their own
-        // storage below rather than from a stored copy of this object.
+        var body = buildBody();
 
-        // Get additional parameters in case they are not sent
-        // by the browser.
-		var savedValueParams = getParametersFromStorage();
-        for(var savedValueIndex in savedValueParams) {
-            var parts = savedValueParams[savedValueIndex].split('=');
-            parameters[parts[0]] = parts[1];
-        }
+        // The record of this request's inputs is computed here, at dispatch,
+        // from the map that is about to be sent, and never from a map built
+        // when the response arrives.
+        lastSent = toRecord(body);
 
-        var params = [];
-        for (var param in parameters) {
-            if (parameters.hasOwnProperty(param)) {
-                params.push(param+"="+parameters[param])
-            }
-        }
+        var params = toPairs(body);
 
-        // Additional evidence provided by the page. Sent in the request
-        // body only and never stored.
-        var pageEvidence = window["{{_objName}}Evidence"];
-        if (pageEvidence && typeof pageEvidence === "object") {
-            for (var evidenceKey in pageEvidence) {
-                if (Object.prototype.hasOwnProperty.call(pageEvidence, evidenceKey)) {
-                    params.push(encodeURIComponent(evidenceKey) + "=" + encodeURIComponent(pageEvidence[evidenceKey]));
-                }
-            }
-        }
-
-        // Add the session and sequence to the request
+        // Add the session and sequence to the request. Both are appended last
+        // and neither is part of the record, because both change on every
+        // request.
         if (sessionId) {
             params.push("session-id=" + sessionId);
         }
@@ -623,8 +720,13 @@ fiftyoneDegreesManager = function() {
             // the same moment, so that the two cannot disagree. Cleared before
             // loadJSON, which can re-enter processJsProperties and queue names
             // for the next request.
-            if (sessionStorage) {
+            if (typeof sessionStorage !== 'undefined' && sessionStorage) {
                 sessionStorage.setItem(sessionKey, responseText);
+                // The record stored with a response is the record of the
+                // request that produced it, computed at dispatch above.
+                if (lastSent !== null) {
+                    sessionStorage.setItem(inputsKey, lastSent);
+                }
                 for (var pending = 0; pending < jsPropertiesPending.length; pending++) {
                     sessionStorage.setItem(
                         sessionKey + "_property_" + jsPropertiesPending[pending], true);
@@ -761,6 +863,10 @@ fiftyoneDegreesManager = function() {
         return evidenceProperties;
     }
 {{/_hasDelayedProperties}}
+
+    // Compare this page view's inputs with the record of the request that
+    // produced the entry in session storage, once, before the first round.
+    applyInputsRecord();
 
 {{#_supportsPromises}}
     this.promise = new Promise(function(resolve, reject) {

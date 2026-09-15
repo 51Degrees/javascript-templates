@@ -65,27 +65,67 @@ before the script executes:
     </script>
     <script src=".../resource.js?id.usage=personalized"></script>
 
-Each key and value is url-encoded and appended to the form-data body of the
+Each key and value is url-encoded and added to the form-data body of the
 POST request. The parameters the script URL itself was requested with are
-re-sent as form fields in that same body, so a key given in both places
-arrives twice under the same name and which one the server uses is left to
-its form parsing: do not duplicate keys across the two. For the same reason
-avoid the keys the request already carries, `session-id` and `sequence`.
+sent as form fields in that same body, and the two sources are merged into
+one set before the body is built, so every key is sent exactly once and a key
+given in both places takes the value from `<ObjectName>Evidence`, which is
+read last. Avoid the keys the request already carries, `session-id` and
+`sequence`, because those two are added after the merged set and a key of the
+same name would then be sent twice.
 
 Values must be strings. Anything else is coerced by the usual JavaScript
 string conversion before it is sent, so a nested object arrives as
 `[object Object]`, and an array assigned to `<ObjectName>Evidence` is sent
 with its indices as the keys.
 
-The evidence itself is only ever put in that request body, never in the URL,
-a cookie or web storage, which is what makes it usable for sensitive values
-such as `id.email`. The JSON response it produces is a different matter: it
-is cached in session storage verbatim for the lifetime of the tab, so any
+The evidence itself is never put in the URL or in a cookie. One copy of it is
+kept, being the record of the inputs of the last request, which is every key
+and value the body carried apart from `session-id` and `sequence`, with
+`id.email` included where the page supplied it. That record is held in
+session storage on the publisher's origin under `<ObjectName>_inputs` as the
+plain string, so that a stored answer is never reused for different inputs.
+Session storage on the publisher's origin is reachable only by the joint
+controllers, being the publisher and 51Degrees, which is why the record is
+kept as it stands and is not hashed. A hash would be read as a privacy
+measure and it is not one. The JSON response the evidence produces is cached
+in session storage verbatim for the lifetime of the tab as well, so any
 personalised content the server returns is stored on the device.
 
 Evidence is only sent when the script makes its JSON refresh request. With
 updates disabled, or when a cached response covers the page view, there is
 no request to carry it.
+
+## What the script keeps in session storage
+
+Every key is named after the object name, so an invalidated entry takes all
+of them with it.
+
+| Key | What it holds |
+| --- | --- |
+| `<ObjectName>` | The last JSON response, verbatim |
+| `<ObjectName>_inputs` | The record of the inputs of the request that produced that response |
+| `<ObjectName>_data_<name>` | A value a JavaScript snippet produced, where cookies are disabled |
+| `<ObjectName>_property_<name>` | A flag saying a snippet has run and its result has reached the server |
+
+The record under `<ObjectName>_inputs` is compared with this page view's own
+inputs once, in the constructor, before the first request. Where the two
+match the stored response is reused and nothing is sent. Where they differ
+every key above is removed, so the snippets run again on this page view and a
+fresh request is made, which is what stops an answer given for one set of
+inputs being reused for another. A publisher who puts a cache buster in the
+script URL therefore invalidates on every page view, because the cache buster
+lands in the rendered parameters and so in the record.
+
+## One object name per integration
+
+Two integrations on one origin must use distinct object names, set through
+the JavaScriptBuilderElement `ObjectName` option. Everything the script keeps
+in session storage is named after the object, so two integrations sharing the
+default `fod` share the cached payload, the snippet values, the snippet flags
+and the record of the last request's inputs. Each one's inputs differ from
+the record the other wrote, so they clear each other's entry on every page
+view and each pays a full round it did not need.
 
 ## Shipping / Deployment
 
