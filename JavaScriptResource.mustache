@@ -91,7 +91,28 @@ fiftyoneDegreesManager = function() {
         if (refreshPending) {
             refreshPending = false;
             refresh();
+            return;
         }
+{{#_updateEnabled}}
+{{#_userPrompt}}
+        // A round can end with no request having been made at all, which is
+        // what happens where the server asked for no snippet, or asked only
+        // for one that saved nothing and so had its count backed out again,
+        // because processJsProperties then completes from the payload
+        // rendered into the page. Where the visitor had already answered
+        // before this script ran and the request for the script did not carry
+        // that answer, the answer has reached nobody and no 51Did can have
+        // been created, so the round is asked for here. refresh() decides
+        // whether anything is really needed and does nothing where the inputs
+        // match what was last sent, so the ordinary page, whose own request
+        // already carried the answer, stays at one request and cannot loop.
+        // Only a round that completed counts, because a round that failed had
+        // dispatched a request and that request carried the answer.
+        if (completed && answerNotSent()) {
+            refresh();
+        }
+{{/_userPrompt}}
+{{/_updateEnabled}}
     };
 
     // startsWith polyfill.
@@ -488,6 +509,22 @@ fiftyoneDegreesManager = function() {
             return "tcstring=" + frameworkString;
         }
         return undefined;
+    };
+
+    // True where the block holds an answer that no request has carried. The
+    // request for this script itself counts, because the payload rendered
+    // into the page was built from that request's own query evidence, so a
+    // page whose script URL already named the answer has the identifier in
+    // its rendered payload and nothing new to send. Where a request has since
+    // gone, refresh() is the one that notices, by comparing the inputs with
+    // the record of what was last sent.
+    var answerNotSent = function() {
+        if (!answer) {
+            return false;
+        }
+        var mark = answer.indexOf("=");
+        return renderedParameters()[answer.substring(0, mark)] !==
+            encodePart(answer.substring(mark + 1));
     };
 
     // The wake up.
@@ -1172,7 +1209,11 @@ fiftyoneDegreesManager = function() {
         }
         completed = false;
         failed = false;
-        jsPropertiesStarted = [];
+        // jsPropertiesStarted is deliberately left alone. A refresh does not
+        // run the snippets again, and the hardware profile that saved nothing
+        // stays in that list so that only the next page view retries it, as
+        // the comment on its back out says. A snippet the refresh response
+        // lists for the first time is not in the list and still runs.
         jsPropertiesPending = [];
         processRequest(refreshResolve, refreshReject);
     };
