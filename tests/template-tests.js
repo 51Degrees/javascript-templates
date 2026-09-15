@@ -122,6 +122,25 @@ function makeStorage(options) {
     return { storage: proxy, data: data };
 }
 
+// A document with the cookie accessor the template reads and a snippet
+// writes. One pair per name and the last write wins, which is how a browser
+// behaves for a cookie written with no attributes.
+function makeCookieDocument(store) {
+    return {
+        get cookie() {
+            return Object.keys(store).map(function (name) {
+                return name + '=' + store[name];
+            }).join('; ');
+        },
+        set cookie(value) {
+            const pair = String(value).split(';')[0];
+            const at = pair.indexOf('=');
+            if (at === -1) { return; }
+            store[pair.substring(0, at).trim()] = pair.substring(at + 1);
+        }
+    };
+}
+
 // A minimal window with the event plumbing the block uses.
 function makeWindow(extras) {
     const listeners = {};
@@ -359,7 +378,7 @@ const secondPayload = JSON.stringify({
 function makeTab() {
     const session = makeStorage();
     const local = makeStorage();
-    return { session: session, local: local };
+    return { session: session, local: local, cookies: {} };
 }
 
 function pageView(tab, options) {
@@ -394,6 +413,12 @@ function pageView(tab, options) {
     Object.assign(sandbox, opts.globals || {});
     if (opts.evidence) { sandbox.fodEvidence = opts.evidence; }
     if (opts.noLocalStorage) { delete sandbox.localStorage; }
+    // Only where the page turns cookies on, so every other check runs in the
+    // same context it always did.
+    if (opts.model && opts.model._enableCookies) {
+        if (!tab.cookies) { tab.cookies = {}; }
+        sandbox.document = makeCookieDocument(tab.cookies);
+    }
     // In a browser the window is the global object, so make it so here.
     sandbox.window = sandbox;
     const context = vm.createContext(sandbox);
@@ -1381,6 +1406,77 @@ section('Every snippet that runs leaves a result');
         (stores.endpoint.bodies[0] || '')
             .indexOf('51D_testvalue=purple') !== -1,
         stores.endpoint.bodies[0]);
+}
+
+
+// ---------------------------------------------------------------------------
+section('A page whose publisher turned cookies on');
+// ---------------------------------------------------------------------------
+{
+    // The store sits in a branch the browser does not take, so the snippet
+    // runs and writes no cookie of its own.
+    const quietSnippet =
+        'if (window.__neverSet) { document.cookie = "51D_quiet=" + "x"; }';
+    const quietPayload = JSON.stringify({
+        device: { ismobile: true, quietjavascript: quietSnippet },
+        javascriptProperties: ['device.quietjavascript']
+    });
+
+    const tab = makeTab();
+    const view = pageView(tab, {
+        model: { _enableCookies: true, _jsonObject: quietPayload },
+        responses: [secondPayload]
+    });
+    await settle(12);
+    check('a cookie page whose snippet stores nothing sends an empty result',
+        /(^|&)51D_quiet=(&|$)/.test(view.endpoint.bodies[0] || ''),
+        view.endpoint.bodies[0]);
+    check('the empty result is kept in session storage, not in a cookie',
+        Object.keys(tab.cookies).length === 0 &&
+        tab.session.data['fod_data_51D_quiet'] === '',
+        JSON.stringify(tab.cookies) + ' ' +
+        JSON.stringify(Object.keys(tab.session.data)));
+
+    // A snippet that does write its cookie must send the cookie's value and
+    // not the empty result written before it ran.
+    const tab2 = makeTab();
+    const stores = pageView(tab2, {
+        model: { _enableCookies: true },
+        responses: [secondPayload]
+    });
+    await settle(12);
+    check('a cookie page whose snippet stores a value sends the value',
+        (stores.endpoint.bodies[0] || '')
+            .indexOf('51D_testvalue=purple') !== -1,
+        stores.endpoint.bodies[0]);
+    check('the snippet wrote that value as a cookie',
+        tab2.cookies['51D_testvalue'] === 'purple',
+        JSON.stringify(tab2.cookies));
+
+    // Five ports assert the number of document.cookie occurrences in the
+    // rendered script, being the template's own read plus the one the
+    // payload's snippet carries. The expectation is pinned here as well, so a
+    // change that adds a write of our own is caught before it takes
+    // pipeline-dotnet, pipeline-java, pipeline-node, pipeline-python and
+    // pipeline-php-core red.
+    const portsPayload = JSON.stringify({
+        device: {
+            ismobile: true,
+            testvaluejavascript: 'document.cookie = "51D_testvalue=" + "purple"'
+        },
+        javascriptProperties: ['device.testvaluejavascript']
+    });
+    const occurrences = s => (s.match(/document\.cookie/g) || []).length;
+    const withCookies = occurrences(render({
+        _enableCookies: true, _jsonObject: portsPayload
+    }));
+    const withoutCookies = occurrences(render({
+        _enableCookies: false, _jsonObject: portsPayload
+    }));
+    check('two document.cookie in the rendered script with cookies on',
+        withCookies === 2, 'count ' + withCookies);
+    check('one document.cookie in the rendered script with cookies off',
+        withoutCookies === 1, 'count ' + withoutCookies);
 }
 
     console.log('\n' + checks + ' checks, ' + failures + ' failures');

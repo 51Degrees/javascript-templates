@@ -262,20 +262,27 @@ fiftyoneDegreesManager = function() {
             }
         };
         {{/_enableCookies}}
-        {{^_enableCookies}}
         {
-            // Collect values from session storage. Guarded because the
-            // request body is now built in the constructor as well as at
-            // dispatch, so this runs where there is no window at all and
-            // where the visitor has blocked storage.
+            // Collect values from session storage, which holds the values the
+            // snippets produced where cookies are off, and in both modes the
+            // empty result of a snippet that stored nothing. A name the
+            // cookies already carry is left alone, so a value a snippet
+            // stored beats the empty result written before it ran. Guarded
+            // because the request body is now built in the constructor as
+            // well as at dispatch, so this runs where there is no window at
+            // all and where the visitor has blocked storage.
             try {
                 if (typeof window !== 'undefined' && window.sessionStorage) {
                     let session51DataPrefix = sessionKey + "_data_";
                     for(let i = 0, n = window.sessionStorage.length; i < n; ++i) {
                         let nextKey = window.sessionStorage.key(i);
                         if(startsWith(nextKey, session51DataPrefix)){
-                            let value = window.sessionStorage[nextKey];
-                            fodValues[nextKey.substring(session51DataPrefix.length)] = value;
+                            let name =
+                                nextKey.substring(session51DataPrefix.length);
+                            if(!Object.prototype.hasOwnProperty.call(
+                                fodValues, name)){
+                                fodValues[name] = window.sessionStorage[nextKey];
+                            }
                         }
                     }
                 }
@@ -283,7 +290,6 @@ fiftyoneDegreesManager = function() {
                 // Storage is blocked, so there are no stored values.
             }
         };
-        {{/_enableCookies}}
         return fodValues;
     };
 
@@ -768,17 +774,22 @@ fiftyoneDegreesManager = function() {
         // then process them and perform any call-backs required.
         if (jsProperties !== undefined && jsProperties.length > 0) {
 
-            {{^_enableCookies}}
             let valueSetPrefix = new RegExp('document\\.cookie\\s*=\\s*(("([A-Za-z0-9_"\\s\\+]+)\\s*=\\s*"\\s*\\+\\s*([^\\s};]+))|(`([A-Za-z0-9_]+)\\s*=\\s*\\$\\{([^}]+)\\}`))', 'g');
             let session51DataPrefix = sessionKey + "_data_";
+            {{^_enableCookies}}
             let sessionSetPatch = 'window.sessionStorage["' + session51DataPrefix + '$3$6"]=$4$7';
+            {{/_enableCookies}}
 
             // Store an empty result for each value a snippet sets that has
             // none yet. An empty value is how the server is told the snippet
             // ran and stored nothing, which is the only report it gets from a
             // snippet whose interface is missing at run time, and without one
             // the page waits for a result that never comes. Groups 3 and 6 of
-            // the pattern the rewrite already uses hold the name.
+            // the pattern the rewrite already uses hold the name. The empty
+            // result goes to session storage whatever the cookie setting, so
+            // the script gains no cookie write of its own, and
+            // getFodSavedValues falls back to that result for a name the
+            // cookies do not carry.
             let storeEmptyValues = function(snippet) {
                 let found;
                 valueSetPrefix.lastIndex = 0;
@@ -800,7 +811,6 @@ fiftyoneDegreesManager = function() {
                     }
                 }
             };
-            {{/_enableCookies}}
 
             // Execute each of the JavaScript property code snippets using the
             // index of the value to access the value to avoid problems with
@@ -843,13 +853,14 @@ fiftyoneDegreesManager = function() {
                     jsPropertiesStarted.push(name);
                     started++;
 
-                    {{^_enableCookies}}
                     // Before the snippet runs, so a value the snippet stores
                     // replaces the empty one, and before the request is built,
                     // so the empty one is in the record of that request's
                     // inputs and the next page view computes the same record
                     // and keeps its cache.
                     storeEmptyValues(body);
+
+                    {{^_enableCookies}}
                     body = body.replaceAll(valueSetPrefix, sessionSetPatch);
                     {{/_enableCookies}}
 
