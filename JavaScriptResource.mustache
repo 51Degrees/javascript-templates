@@ -1463,10 +1463,9 @@ fiftyoneDegreesManager = function() {
 }
 
 // Loading the script twice replaces the first instance and its state. The
-// Preference Management Platform adds this script only where the page's
-// document carries no client script tag, and where a tag is there it waits
-// for that tag to run, so that convenience never trips this warning and
-// nobody should "fix" it to allow for it. The value is tested and not the
+// Preference Management Platform adds this script only where, once the
+// page has loaded, no client script object is on it, so that convenience
+// never trips this warning and nobody should "fix" it to allow for it. The value is tested and not the
 // property, because var {{_objName}} at the top level creates the global
 // property with the value undefined before any statement runs, so testing
 // the property would warn on every load. The text names the object and
