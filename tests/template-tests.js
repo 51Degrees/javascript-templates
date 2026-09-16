@@ -502,6 +502,55 @@ function pageView(tab, options) {
             String(second.context.fod.device.testvalue));
     }
 
+    // A builder that also renders the session id and the sequence into the
+    // script's parameters. Three of the six ports do, because the parameters
+    // are built from every query evidence key and these two arrive as query
+    // evidence like any other. The session id changes on every page view, so
+    // a record that kept it could never match the next page view's and the
+    // cached response could never be reused, which costs a request on every
+    // page view for the life of the tab. The record leaves both out whatever
+    // the parameters carried, so such a builder is served from the cache like
+    // any other.
+    {
+        const tab = makeTab();
+        const withSession = function (sessionId) {
+            return {
+                model: {
+                    _sessionId: sessionId,
+                    _parameters: JSON.stringify({
+                        mark: 'second',
+                        'session-id': sessionId,
+                        sequence: '1'
+                    })
+                },
+                responses: [secondPayload]
+            };
+        };
+
+        const first = pageView(tab, withSession('abc-123'));
+        await settle();
+        check('a builder that renders the session id still dispatches once',
+            first.endpoint.count() === 1, 'count ' + first.endpoint.count());
+        check('the record leaves out a session id that came from the parameters',
+            !tab.session.data['fod_inputs'].includes('session-id'),
+            tab.session.data['fod_inputs']);
+        check('the record leaves out a sequence that came from the parameters',
+            !tab.session.data['fod_inputs'].includes('sequence'),
+            tab.session.data['fod_inputs']);
+        check('the record still carries the rest of the parameters',
+            tab.session.data['fod_inputs'].includes('mark=second'),
+            tab.session.data['fod_inputs']);
+
+        // The second page view gets a new session id, as every page view does.
+        const second = pageView(tab, withSession('def-456'));
+        await settle();
+        check('a second page view with a new session id sends nothing',
+            second.endpoint.count() === 0, 'count ' + second.endpoint.count());
+        check('a second page view with a new session id sees the cached value',
+            second.context.fod.device.testvalue === 'purple',
+            String(second.context.fod.device.testvalue));
+    }
+
     {
         // Different query evidence is different inputs, so the entry goes and
         // the snippets run again on this page view.

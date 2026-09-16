@@ -373,6 +373,17 @@ fiftyoneDegreesManager = function() {
         return pairs;
     };
 
+    // The keys the record never carries. Both change on every request, so a
+    // record holding either could never match the next page view's and the
+    // cached response could never be reused. processRequest appends them to
+    // the request after the record is taken, which is enough where they reach
+    // the body from nowhere else, and they are taken out here as well because
+    // a builder is free to render whatever it likes into the script's
+    // parameters and one that renders these lands them in the body. Taking
+    // them out in one place means the record says what its name says whatever
+    // the parameters carried.
+    var recordExcluded = { "session-id": 1, "sequence": 1 };
+
     // The record of a request's inputs. The same pairs as the body, without
     // the session id and the sequence, sorted so that the order the keys
     // happened to be added in cannot make two identical requests look
@@ -382,7 +393,15 @@ fiftyoneDegreesManager = function() {
     // being the publisher and 51Degrees, and a hash would be read as a
     // privacy measure when it is not one.
     var toRecord = function(body) {
-        return toPairs(body).sort().join('&').replace(/%20/g, '+');
+        var pairs = [];
+        for (var key in body) {
+            if (Object.prototype.hasOwnProperty.call(body, key) &&
+                Object.prototype.hasOwnProperty.call(recordExcluded, key)
+                    === false) {
+                pairs.push(key + "=" + body[key]);
+            }
+        }
+        return pairs.sort().join('&').replace(/%20/g, '+');
     };
 
     // The record of what this page view would send if it dispatched now.
