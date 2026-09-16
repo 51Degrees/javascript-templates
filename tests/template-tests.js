@@ -1528,6 +1528,286 @@ section('A page whose publisher turned cookies on');
         withoutCookies === 1, 'count ' + withoutCookies);
 }
 
+
+// ---------------------------------------------------------------------------
+section('Result names the snippets build or join');
+// ---------------------------------------------------------------------------
+{
+    // The location snippet as the cloud serves it. The name of each
+    // coordinate is joined to a fixed start as the snippet runs, and the
+    // error path writes a fixed name.
+    const LOCATION_SNIPPET = [
+        'if (navigator.geolocation) {',
+        '    navigator.geolocation.getCurrentPosition(function(pos) {',
+        '        for (var key in pos.coords) {',
+        '            document.cookie = "51D_Pos_" + key + "=" + pos.coords[key];',
+        '        }',
+        '        // 51D replace this comment with callback function.',
+        '    }, function(e) {',
+        '        document.cookie ="51D_Pos_Error=" + encodeURIComponent(e.message);',
+        '        // 51D replace this comment with callback function.',
+        '    });',
+        '}'
+    ].join('\n');
+
+    // The high entropy values snippet as the device data carries it, which
+    // writes its result with a template literal.
+    const HIGH_ENTROPY_SNIPPET = [
+        'if(navigator.userAgentData){navigator.userAgentData' +
+            '.getHighEntropyValues(["model","platform","platformVersion",' +
+            '"fullVersionList"]).then(t=>{document.cookie=' +
+            '`51D_GetHighEntropyValues=${btoa(JSON.stringify(t))}`',
+        '// 51D replace this comment with callback function.',
+        '})} else { // 51D replace this comment with callback function.',
+        '}'
+    ].join('\n');
+
+    // The bandwidth snippet's store, which joins two quoted strings to make
+    // a fixed name.
+    const JOINED_SNIPPET =
+        'var value = "fast"; ' +
+        'document.cookie = "51D_Bandwidth" + "=" + encodeURIComponent(value);';
+
+    const payloadFor = function (body) {
+        return JSON.stringify({
+            location: { javascript: body },
+            javascriptProperties: ['location.javascript']
+        });
+    };
+
+    // A stored name that no store could give, being one carrying a quote, a
+    // plus or a template placeholder, is a store under the wrong key.
+    const wrongKeys = function (tab) {
+        return Object.keys(tab.session.data).filter(function (k) {
+            return /["+`]|\$\{/.test(k);
+        });
+    };
+
+    const geolocation = function (outcome) {
+        return {
+            getCurrentPosition: function (success, failure) {
+                setTimeout(function () {
+                    if (outcome === 'allow') {
+                        success({ coords: { latitude: 51, longitude: -1 } });
+                    } else {
+                        failure({ message: 'User denied Geolocation' });
+                    }
+                }, 0);
+            }
+        };
+    };
+
+    // Cookies off, the visitor allows the position.
+    {
+        const tab = makeTab();
+        const view = pageView(tab, {
+            model: { _jsonObject: payloadFor(LOCATION_SNIPPET) },
+            globals: { navigator: { geolocation: geolocation('allow') } },
+            responses: [secondPayload]
+        });
+        await settle(12);
+        const body = view.endpoint.bodies[0] || '';
+        check('a built name is stored under the name the snippet built',
+            tab.session.data['fod_data_51D_Pos_latitude'] === '51' &&
+            tab.session.data['fod_data_51D_Pos_longitude'] === '-1',
+            JSON.stringify(tab.session.data));
+        check('a built name leaves nothing stored under a wrong key',
+            wrongKeys(tab).length === 0,
+            JSON.stringify(wrongKeys(tab)));
+        check('the fixed name beside a built one still gets its empty result',
+            tab.session.data['fod_data_51D_Pos_Error'] === '',
+            JSON.stringify(tab.session.data));
+        check('the request carries the built names and their values',
+            /(^|&)51D_Pos_latitude=51(&|$)/.test(body) &&
+            /(^|&)51D_Pos_longitude=-1(&|$)/.test(body), body);
+        check('the request carries no name with a quote in it',
+            body.indexOf('%22') === -1 && body.indexOf('"') === -1, body);
+    }
+
+    // Cookies off, the visitor refuses.
+    {
+        const tab = makeTab();
+        const view = pageView(tab, {
+            model: { _jsonObject: payloadFor(LOCATION_SNIPPET) },
+            globals: { navigator: { geolocation: geolocation('deny') } },
+            responses: [secondPayload]
+        });
+        await settle(12);
+        const body = view.endpoint.bodies[0] || '';
+        check('the error path stores its fixed name',
+            tab.session.data['fod_data_51D_Pos_Error'] ===
+                'User%20denied%20Geolocation',
+            JSON.stringify(tab.session.data));
+        check('the error path leaves nothing stored under a wrong key',
+            wrongKeys(tab).length === 0, JSON.stringify(wrongKeys(tab)));
+        check('the error path request carries no name with a quote in it',
+            body.indexOf('%22') === -1 &&
+            body.indexOf('51D_Pos_Error=') !== -1, body);
+    }
+
+    // Cookies on, the visitor allows the position.
+    {
+        const tab = makeTab();
+        const view = pageView(tab, {
+            model: {
+                _enableCookies: true,
+                _jsonObject: payloadFor(LOCATION_SNIPPET)
+            },
+            globals: { navigator: { geolocation: geolocation('allow') } },
+            responses: [secondPayload]
+        });
+        await settle(12);
+        const body = view.endpoint.bodies[0] || '';
+        check('a cookie page writes the built names as cookies',
+            tab.cookies['51D_Pos_latitude'] === '51' &&
+            tab.cookies['51D_Pos_longitude'] === '-1',
+            JSON.stringify(tab.cookies));
+        check('a cookie page stores nothing under a wrong key',
+            wrongKeys(tab).length === 0, JSON.stringify(wrongKeys(tab)));
+        check('a cookie page sends no name with a quote in it',
+            body.indexOf('%22') === -1 &&
+            /(^|&)51D_Pos_latitude=51(&|$)/.test(body), body);
+    }
+
+    // A template literal name, cookies off.
+    {
+        const tab = makeTab();
+        const hints = { model: 'Pixel 9', platform: 'Android' };
+        const view = pageView(tab, {
+            model: { _jsonObject: payloadFor(HIGH_ENTROPY_SNIPPET) },
+            globals: {
+                btoa: btoa,
+                navigator: {
+                    userAgentData: {
+                        getHighEntropyValues: function () {
+                            return Promise.resolve(hints);
+                        }
+                    }
+                }
+            },
+            responses: [secondPayload]
+        });
+        await settle(12);
+        const expected = btoa(JSON.stringify(hints));
+        const body = view.endpoint.bodies[0] || '';
+        check('a template literal name is stored under that name',
+            tab.session.data['fod_data_51D_GetHighEntropyValues'] ===
+                expected,
+            JSON.stringify(tab.session.data));
+        check('a template literal name leaves nothing under a wrong key',
+            wrongKeys(tab).length === 0, JSON.stringify(wrongKeys(tab)));
+        check('the request carries the template literal result',
+            body.indexOf('51D_GetHighEntropyValues=' +
+                encodeURIComponent(expected)) !== -1, body);
+    }
+
+    // A template literal name where the interface is missing, so the
+    // snippet stores nothing and the empty result is what is sent.
+    {
+        const tab = makeTab();
+        const view = pageView(tab, {
+            model: { _jsonObject: payloadFor(HIGH_ENTROPY_SNIPPET) },
+            globals: { navigator: {} },
+            responses: [secondPayload]
+        });
+        await settle(12);
+        check('a template literal name gets its empty result',
+            /(^|&)51D_GetHighEntropyValues=(&|$)/
+                .test(view.endpoint.bodies[0] || ''),
+            view.endpoint.bodies[0]);
+    }
+
+    // Two quoted strings joined into one fixed name, cookies off.
+    {
+        const tab = makeTab();
+        const view = pageView(tab, {
+            model: { _jsonObject: payloadFor(JOINED_SNIPPET) },
+            responses: [secondPayload]
+        });
+        await settle(12);
+        check('a name joined from two strings is stored under the whole name',
+            tab.session.data['fod_data_51D_Bandwidth'] === 'fast',
+            JSON.stringify(tab.session.data));
+        check('a name joined from two strings leaves no wrong key',
+            wrongKeys(tab).length === 0, JSON.stringify(wrongKeys(tab)));
+        check('a name joined from two strings is sent under the whole name',
+            /(^|&)51D_Bandwidth=fast(&|$)/
+                .test(view.endpoint.bodies[0] || ''),
+            view.endpoint.bodies[0]);
+    }
+
+    // A space before the equals sign is not part of the name, as a browser
+    // trims it from a cookie name.
+    {
+        const tab = makeTab();
+        const view = pageView(tab, {
+            model: {
+                _jsonObject: payloadFor(
+                    'document.cookie = "51D_Spaced =" + "wide";')
+            },
+            responses: [secondPayload]
+        });
+        await settle(12);
+        check('a space before the equals sign is left out of the name',
+            tab.session.data['fod_data_51D_Spaced'] === 'wide' &&
+            Object.keys(tab.session.data).filter(function (k) {
+                return / /.test(k);
+            }).length === 0,
+            JSON.stringify(Object.keys(tab.session.data)));
+        check('a space before the equals sign is left out of the sent name',
+            /(^|&)51D_Spaced=wide(&|$)/
+                .test(view.endpoint.bodies[0] || ''),
+            view.endpoint.bodies[0]);
+    }
+
+    // Forms the rewrite does not read are left to write their cookie, and
+    // nothing is stored for them, rather than a store under a wrong key.
+    const notRead = [
+        ['a name built from a member',
+            'var o = { k: "Member" }; ' +
+            'document.cookie = "51D_" + o.k + "=" + "1";',
+            '51D_Member'],
+        ['a template literal with a built name',
+            'var k = "Built"; document.cookie = `51D_${k}=${"1"}`;',
+            '51D_Built'],
+        ['a template literal with text after the value',
+            'document.cookie = `51D_Tail=${"1"}; path=/`;',
+            '51D_Tail']
+    ];
+    for (const [label, snippet, cookieName] of notRead) {
+        const tab = makeTab();
+        const jar = {};
+        const view = pageView(tab, {
+            model: { _jsonObject: payloadFor(snippet) },
+            globals: { document: makeCookieDocument(jar) },
+            responses: [secondPayload]
+        });
+        await settle(12);
+        check(label + ' is left to write its cookie',
+            jar[cookieName] === '1', JSON.stringify(jar));
+        check(label + ' stores nothing in session storage',
+            Object.keys(tab.session.data).filter(function (k) {
+                return k.indexOf('fod_data_') === 0;
+            }).length === 0,
+            JSON.stringify(Object.keys(tab.session.data)));
+        check(label + ' still lets the round finish',
+            view.endpoint.count() === 1, 'count ' + view.endpoint.count());
+    }
+
+    // A tab that an earlier script left holding a value under a wrong key
+    // does not send it again.
+    {
+        const tab = makeTab();
+        tab.session.data['fod_data_51D_Pos_" + key + "'] = '';
+        const view = pageView(tab, { responses: [secondPayload] });
+        await settle(12);
+        const body = view.endpoint.bodies[0] || '';
+        check('a value stored under a wrong key earlier is not sent',
+            body.indexOf('%22') === -1 && body.indexOf('51D_Pos_') === -1 &&
+            body.indexOf('51D_testvalue=purple') !== -1, body);
+    }
+}
+
     console.log('\n' + checks + ' checks, ' + failures + ' failures');
     process.exit(failures === 0 ? 0 : 1);
 })();

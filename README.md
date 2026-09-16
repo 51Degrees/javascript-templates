@@ -18,13 +18,18 @@ The processJsProperties function in javascript template has a section that uses 
 - **Cookie Assignment**: The expression should start with `document.cookie = `
 - **Spaces**: Spaces around the first `=` sign are optional
 - **Cookie Name**: The name of the cookie should only contain alphanumeric characters, underscores, and must not have spaces
+- **Joined Cookie Name**: In double quotes, the name can be a fixed start joined with `+` to further quoted text and to plain variable names, for example `"51D_Pos_" + key + "="` or `"51D_Bandwidth" + "="`. The session storage key is then joined the same way, so it holds the name the snippet builds as it runs
 - **Assignment with Double Quotes**: The cookie value assignment can use double quotes, and the value should be set programmatically by concatenating a string with a variable or expression
-- **Assignment with Backticks**: The cookie value assignment can use backticks for template literals, and the value can be set programmatically using expressions inside `${}`
+- **Assignment with Backticks**: The cookie value assignment can use backticks for template literals, and the value can be set programmatically using expressions inside `${}`. The name in a template literal must be fixed
 - **No Direct Value Assignment**: Directly setting a value within the string is not allowed; values must be set programmatically
+
+A statement that does not follow these rules is not changed, so it still writes its cookie and nothing is kept in session storage for it.
+
+Before a snippet runs, the script stores an empty value in session storage for each fixed name the snippet writes, which is how the server hears that the snippet ran and stored nothing. A name joined to a variable is only known as the snippet runs, so no empty value is stored for it.
 
 #### Regular Expression:
 ```javascript
-/document\.cookie\s*=\s*(("([A-Za-z0-9_"\s\+]+)\s*=\s*"\s*\+\s*([^\s};]+))|(`([A-Za-z0-9_]+)\s*=\s*\$\{([^}]+)\}`))/g
+/document\.cookie\s*=\s*(("([A-Za-z0-9_]+(?:"\s*\+\s*(?:[A-Za-z_$][A-Za-z0-9_$]*\s*\+\s*)*"[A-Za-z0-9_]*)*)\s*=\s*"\s*\+\s*([^\s};]+))|(`([A-Za-z0-9_]+)\s*=\s*\$\{([^}]+)\}`))/g
 ```
 
 #### Valid Examples:
@@ -36,6 +41,8 @@ document.cookie="51D_PropertyName="+screen.height; // No spaces, variable assign
 document.cookie=`51D_PropertyName=${btoa(JSON.stringify(value))}` // Using a template literal with an expression
 document.cookie="51D_PropertyName="+profileIds.join("|") // Assigning a value using a joined string of variables
 document.cookie = `51D_PropertyName=${"True"}`; // Using backticks for programmatic value assignment
+document.cookie = "51D_Pos_" + key + "=" + pos.coords[key]; // A name built from a variable as the snippet runs
+document.cookie = "51D_Bandwidth" + "=" + value; // A fixed name joined from two strings
 ```
 
 #### Invalid Examples:
@@ -45,6 +52,8 @@ document.cookie = "51D_PropertyName=" + profileIds.join(" ") // Spaces within th
 document.cookie = "  51D_PropertyName  = " + "True"; // Spaces inside the cookie name are not allowed
 document.cookie = `  51D_PropertyName  =${"True"}`; // Spaces inside the template literal are not allowed
 document.cookie = `51D_PropertyName=START${window.middle}END`; // Concatenating strings directly within template literals is not allowed
+document.cookie = `51D_${key}=${value}`; // A name built inside a template literal is not allowed
+document.cookie = "51D_" + item.key + "=" + value; // A name joined to anything but a plain variable name is not allowed
 ```
 ---
 
