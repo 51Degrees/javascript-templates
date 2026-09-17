@@ -294,6 +294,25 @@ section('Formatting constraints the other ports\' tests enforce');
         try { new vm.Script(s); } catch (err) { ok = false; why = err.message; }
         check('the rendered script parses, ' + name, ok, why);
     }
+
+    // The README carries a copy of the pattern processJsProperties uses to
+    // find the stores a snippet makes, and so does the server side of the
+    // cloud service. A change to the pattern that leaves the README behind
+    // sends the next reader, and the next port, to a pattern the template no
+    // longer uses. The template holds it as a single quoted JavaScript string
+    // whose backslashes are doubled, so they are halved here to get the text
+    // the README prints.
+    {
+        const held = template.match(
+            /let valueSetPrefix = new RegExp\('(.*)', 'g'\);/);
+        const patternText = held && held[1].replace(/\\\\/g, '\\');
+        const readme = fs.readFileSync(
+            path.join(__dirname, '..', 'README.md'), 'utf8');
+        check('the README prints the pattern the template uses',
+            !!patternText &&
+            readme.indexOf('/' + patternText + '/g') !== -1,
+            JSON.stringify(patternText));
+    }
 }
 
 // ---------------------------------------------------------------------------
