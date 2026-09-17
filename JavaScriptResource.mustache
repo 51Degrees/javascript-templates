@@ -767,6 +767,13 @@ fiftyoneDegreesManager = function() {
 {{#_updateEnabled}}
             processRequest(resolve, reject);
 {{/_updateEnabled}}
+{{^_updateEnabled}}
+            failed = false;
+            completed = true;
+            fireChangeFuncs(json);
+            resolve(json);
+            roundEnded();
+{{/_updateEnabled}}
         } else if (callbackCounter < 0){
             reject('Too many callbacks.');
         }
@@ -797,9 +804,11 @@ fiftyoneDegreesManager = function() {
         if (jsProperties !== undefined && jsProperties.length > 0) {
 
             let valueSetPrefix = new RegExp('document\\.cookie\\s*=\\s*(("([A-Za-z0-9_"\\s\\+]+)\\s*=\\s*"\\s*\\+\\s*([^\\s};]+))|(`([A-Za-z0-9_]+)\\s*=\\s*\\$\\{([^}]+)\\}`))', 'g');
+            let valueGetPrefix = new RegExp('=\\s*document\\.cookie', 'g');
             let session51DataPrefix = sessionKey + "_data_";
             {{^_enableCookies}}
             let sessionSetPatch = 'window.sessionStorage["' + session51DataPrefix + '$3$6"]=$4$7';
+            let sessionGetPatch = '= (()=>Array.from({length:sessionStorage.length},(_,i)=>sessionStorage.key(i)).filter(k=>k&&k.startsWith("' + session51DataPrefix + '")).map(k=>encodeURIComponent(k)+"="+encodeURIComponent(sessionStorage.getItem(k))).join("; "))()';
             {{/_enableCookies}}
 
             // Store an empty result for each value a snippet sets that has
@@ -883,7 +892,23 @@ fiftyoneDegreesManager = function() {
                     storeEmptyValues(body);
 
                     {{^_enableCookies}}
+                    {{#_diagnoseUnconvertedCookies}}
+                    var rawBody = body
+                    {{/_diagnoseUnconvertedCookies}}
                     body = body.replaceAll(valueSetPrefix, sessionSetPatch);
+                    body = body.replaceAll(valueGetPrefix, sessionGetPatch);
+                    {{#_diagnoseUnconvertedCookies}}
+                    var cookiePos = body.indexOf('document.cookie');
+                    if (cookiePos !== -1) {
+                        console.log("'document.cookie' found at: " + cookiePos)
+                        catchError(new Error('Snippet ' + name + ' contains unconverted document.cookie after session storage patch'));
+                    } else {
+                        console.log("No 'document.cookie' found.")
+                    }
+                    console.log(body)
+                    console.log("--- RAW BODY ---")
+                    console.log(rawBody)
+                    {{/_diagnoseUnconvertedCookies}}
                     {{/_enableCookies}}
 
                     if (body.indexOf(searchString) !== -1){

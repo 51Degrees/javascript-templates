@@ -1,0 +1,4 @@
+# This directory is populated by the js-snippet-export tool during CI
+# Do not commit snippet files to version control
+*
+!.gitignore

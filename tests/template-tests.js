@@ -27,17 +27,53 @@ const template = fs.readFileSync(templatePath, 'utf8');
 
 let failures = 0;
 let checks = 0;
+// Accumulated per-check results so the run can emit a JUnit XML report. The CI
+// publish step globs test-results/unit/**/*.xml; without a file it reports
+// nothing, so console PASS/FAIL alone leaves the summary empty.
+const results = [];
+let currentSection = 'template-tests';
 function check(name, condition, detail) {
     checks++;
     if (condition) {
         console.log('  PASS  ' + name);
+        results.push({ section: currentSection, name: name, failure: null });
     } else {
         failures++;
         console.log('  FAIL  ' + name + (detail ? '\n        ' + detail : ''));
+        results.push({ section: currentSection, name: name, failure: detail || 'assertion failed' });
     }
 }
 function section(name) {
+    currentSection = name;
     console.log('\n=== ' + name + ' ===');
+}
+
+function xmlEscape(s) {
+    return String(s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+}
+function writeJUnitReport() {
+    const outDir = path.join(__dirname, '..', 'test-results', 'unit');
+    fs.mkdirSync(outDir, { recursive: true });
+    const cases = results.map(function (r) {
+        const cls = xmlEscape(r.section);
+        const nm = xmlEscape(r.name);
+        if (r.failure === null) {
+            return '    <testcase classname="' + cls + '" name="' + nm + '" />';
+        }
+        return '    <testcase classname="' + cls + '" name="' + nm + '">\n' +
+            '      <failure message="' + xmlEscape(r.failure) + '"></failure>\n' +
+            '    </testcase>';
+    }).join('\n');
+    const xml = '<?xml version="1.0" encoding="UTF-8"?>\n' +
+        '<testsuites>\n' +
+        '  <testsuite name="template-tests" tests="' + checks +
+        '" failures="' + failures + '">\n' +
+        cases + '\n' +
+        '  </testsuite>\n' +
+        '</testsuites>\n';
+    fs.writeFileSync(path.join(outDir, 'template-tests.xml'), xml, 'utf8');
 }
 
 // ---------------------------------------------------------------------------
@@ -1529,5 +1565,6 @@ section('A page whose publisher turned cookies on');
 }
 
     console.log('\n' + checks + ' checks, ' + failures + ' failures');
+    writeJUnitReport();
     process.exit(failures === 0 ? 0 : 1);
 })();

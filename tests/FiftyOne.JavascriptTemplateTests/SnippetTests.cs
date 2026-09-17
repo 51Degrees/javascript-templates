@@ -1,0 +1,346 @@
+﻿/* *********************************************************************
+ * This Original Work is copyright of 51 Degrees Mobile Experts Limited.
+ * Copyright 2026 51 Degrees Mobile Experts Limited, Davidson House,
+ * Forbury Square, Reading, Berkshire, United Kingdom RG1 3EU.
+ *
+ * This Original Work is licensed under the European Union Public Licence
+ * (EUPL) v.1.2 and is subject to its terms as set out below.
+ *
+ * If a copy of the EUPL was not distributed with this file, You can obtain
+ * one at https://opensource.org/licenses/EUPL-1.2.
+ *
+ * The 'Compatible Licences' set out in the Appendix to the EUPL (as may be
+ * amended by the European Commission) shall be deemed incompatible for
+ * the purposes of the Work and the provisions of the compatibility
+ * clause in Article 5 of the EUPL shall not apply.
+ *
+ * If using the Work as, or as part of, a network application, by
+ * including the attribution notice(s) required under Article 5 of the EUPL
+ * in the end user terms of the application under an appropriate heading,
+ * such notice(s) shall fulfill the requirements of that article.
+ * ********************************************************************* */
+
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+using OpenQA.Selenium;
+using OpenQA.Selenium.Chrome;
+using Stubble.Core.Builders;
+using System.Collections;
+using System.Collections.Generic;
+using System.Net;
+
+namespace FiftyOne.JavascriptTemplateTests;
+
+[TestClass]
+[DoNotParallelize] // one shared driver + one shared server; tests must not overlap
+public class SnippetTests
+{
+    private static ChromeDriver _driver = null!;
+    private static string _baseDir = null!;
+    private static string _template = null!;
+    private static SimpleHttpServer _server = null!;
+
+    [ClassInitialize]
+    public static void ClassInit(TestContext context)
+    {
+        _baseDir = FindBaseDirectory();
+        _template = File.ReadAllText(Path.Combine(_baseDir, "JavaScriptResource.mustache"));
+        _driver = CreateDriver();
+        _server = new SimpleHttpServer();
+    }
+
+    [ClassCleanup]
+    public static void ClassCleanup()
+    {
+        _driver?.Quit();
+        _server?.Dispose();
+    }
+
+    [TestMethod]
+    [DynamicData(nameof(GetSnippetTestCases), DynamicDataSourceType.Method,
+        DynamicDataDisplayName = nameof(GetSnippetDisplayName))]
+    public void Snippet_ExecutesWithoutError(string propertyName, string snippet, string snippetFile)
+    {
+        var devicePropertyName = propertyName.Substring(propertyName.IndexOf('.') + 1);
+        var renderedJs = RenderSnippetJs(propertyName, snippet);
+        var html = BuildTestHtml(propertyName, renderedJs);
+        
+        // Save HTML beside the .js file for manual replication after a run.
+        var htmlFile = snippetFile.Replace(".js", ".html");
+        File.WriteAllText(htmlFile, html);
+        Console.WriteLine($"[{propertyName}] HTML saved to: {htmlFile}");
+
+        RunTestInBrowser(html, propertyName);
+    }
+
+    private string RenderSnippetJs(string propertyName, string snippet)
+    {
+        var devicePropertyName = propertyName.Substring(propertyName.IndexOf('.') + 1);
+        var fullObject = new Dictionary<string, object>
+        {
+            ["device"] = new Dictionary<string, object>
+            {
+                [devicePropertyName] = snippet
+            },
+            ["javascriptProperties"] = new List<string> { propertyName }
+        };
+        var testData = new Dictionary<string, object>
+        {
+            ["_jsonObject"] = Newtonsoft.Json.JsonConvert.SerializeObject(fullObject),
+            ["_parameters"] = "{}",
+            ["_sessionId"] = "test-session-123",
+            ["_objName"] = "fod",
+            ["_sequence"] = "0",
+            ["_enableCookies"] = false,
+            ["_updateEnabled"] = false,
+            // Test-only: fail the snippet if a document.cookie assignment
+            // survives the session-storage patch (i.e. wasn't converted).
+            ["_diagnoseUnconvertedCookies"] = true
+        };
+        return new StubbleBuilder().Build().Render(_template, testData);
+    }
+
+    private string BuildTestHtml(string propertyName, string renderedJs)
+    {
+        return $@"<!DOCTYPE html>
+<html>
+<head>
+    <title>{propertyName}</title>
+    <style>
+        body {{ font-family: monospace; padding: 20px; }}
+        #status {{ padding: 10px; margin: 10px 0; border-radius: 4px; }}
+        .pass {{ background: #d4edda; color: #155724; }}
+        .fail {{ background: #f8d7da; color: #721c24; }}
+        .pending {{ background: #fff3cd; color: #856404; }}
+        #errors {{ color: red; white-space: pre-wrap; }}
+        #logs {{ background: #f5f5f5; padding: 10px; white-space: pre-wrap; }}
+    </style>
+</head>
+<body>
+    <h1>Snippet Test: {propertyName}</h1>
+    <div id=""status"" class=""pending"">Running...</div>
+    <div id=""errors""></div>
+    <h3>Console Log:</h3>
+    <div id=""logs""></div>
+    <script>
+        let logs = [];
+        let origLog = console.log, origErr = console.error;
+        console.log = function(...a) {{ logs.push(['LOG', ...a]); origLog.apply(console, a); }};
+        console.error = function(...a) {{ logs.push(['ERR', ...a]); origErr.apply(console, a); }};
+        window.onerror = function(m, u, l, c) {{ logs.push(['JSERR', m + ' @ ' + l + ':' + c]); return false; }};
+        function showResult(ok, errs) {{
+            document.getElementById('status').className = ok ? 'pass' : 'fail';
+            document.getElementById('status').textContent = ok ? 'PASS' : 'FAIL';
+            if (errs && errs.length) document.getElementById('errors').textContent = errs.join('\n');
+            document.getElementById('logs').textContent = logs.map(l => l.join(' ')).join('\n');
+        }}
+        function timeout(ms) {{ return new Promise((_, r) => setTimeout(() => r(new Error('Timeout ' + ms + 'ms')), ms)); }}
+    </script>
+    <script>
+{renderedJs}
+    </script>
+    <script>
+        (async function() {{
+            try {{
+                await Promise.race([
+                    new Promise((res, rej) => {{
+                        if (typeof fod === 'undefined') {{ rej(new Error('fod not created')); return; }}
+                        fod.complete(function(j) {{
+                            let e = (j.errors || []).concat(j.warnings || []);
+                            e.length ? rej(new Error(e.join('\n'))) : res(j);
+                        }});
+                    }}),
+                    timeout(1000)
+                ]);
+                showResult(true);
+            }} catch (e) {{ showResult(false, [e.message]); }}
+        }})();
+    </script>
+</body>
+</html>";
+    }
+
+    private void RunTestInBrowser(string html, string propertyName)
+    {
+        _server.Content = html;
+        _driver.Navigate().GoToUrl($"http://localhost:{_server.Port}/");
+        
+        // Poll for #status to exist AND leave "pending". GoToUrl can return
+        // before Chrome has swapped in the served document, so grabbing the
+        // element straight away races the page load and throws
+        // NoSuchElementException. Swallowing the not-yet-there element while
+        // polling lets a slow page read as a real result, not a missing element.
+        // (WebDriverWait lives in the Selenium.Support package, which we don't
+        // reference, so this is a hand-rolled equivalent.)
+        IWebElement? statusEl = null;
+        var deadline = DateTime.Now.AddSeconds(10);
+        while (DateTime.Now < deadline)
+        {
+            try
+            {
+                var el = _driver.FindElement(By.Id("status"));
+                if (el.GetAttribute("class") != "pending") { statusEl = el; break; }
+            }
+            catch (NoSuchElementException) { /* page not loaded yet */ }
+            System.Threading.Thread.Sleep(50);
+        }
+        Assert.IsNotNull(statusEl,
+            $"{propertyName}: #status never left 'pending' within 10s (page did not load or snippet hung)");
+        
+        var statusClass = statusEl!.GetAttribute("class");
+        var statusText = statusEl.Text;
+        string errors = "";
+        string logs = "";
+        try { errors = _driver.FindElement(By.Id("errors")).Text; } catch { }
+        try { logs = _driver.FindElement(By.Id("logs")).Text; } catch { }
+
+        Console.WriteLine($"[{propertyName}] Status: {statusText}");
+        if (!string.IsNullOrEmpty(logs)) Console.WriteLine($"[{propertyName}] Logs:\n{logs}");
+
+        var browserLogs = _driver.Manage().Logs.GetLog(LogType.Browser);
+        var jsErrors = browserLogs.Where(l => l.Level == LogLevel.Severe)
+                                  .Select(l => l.Message)
+                                  .Where(m => !m.Contains("net::ERR"))
+                                  .ToList();
+
+        if (statusClass == "fail")
+            Assert.Fail($"{propertyName} failed.\nPage: {errors}\nBrowser: {string.Join("\n", jsErrors)}");
+        if (jsErrors.Any())
+            Assert.Fail($"{propertyName} browser errors:\n" + string.Join("\n", jsErrors));
+    }
+
+    // Builds each test's display name from the property + snippet file only.
+    // Without this, [DynamicData] stringifies ALL args - including the full
+    // snippet source - into the name, dumping every snippet body into the CI log.
+    public static string GetSnippetDisplayName(System.Reflection.MethodInfo methodInfo, object[] data)
+    {
+        var propertyName = (string)data[0];
+        var snippetFile = Path.GetFileName((string)data[2]);
+        return $"{methodInfo.Name}({propertyName}, {snippetFile})";
+    }
+
+    public static IEnumerable<object[]> GetSnippetTestCases()
+    {
+        var baseDir = _baseDir ?? FindBaseDirectory();
+        var snippetsDir = Path.Combine(baseDir, "snippets");
+
+        foreach (var file in Directory.GetFiles(snippetsDir, "*.js"))
+        {
+            var name = Path.GetFileNameWithoutExtension(file);
+            var propertyName = ConvertToPropertyName(name);
+            var snippet = File.ReadAllText(file);
+            yield return new object[] { propertyName, snippet, file };
+        }
+    }
+
+    private static string FindBaseDirectory()
+    {
+        var dir = Directory.GetCurrentDirectory();
+        while (dir != null)
+        {
+            if (File.Exists(Path.Combine(dir, "JavaScriptResource.mustache")))
+                return dir;
+            dir = Directory.GetParent(dir)?.FullName;
+        }
+        throw new InvalidOperationException("Could not find repository root");
+    }
+
+    private static ChromeDriver CreateDriver()
+    {
+        var options = new ChromeOptions();
+        options.AddArgument("--headless");
+        options.AddArgument("--no-sandbox");
+        options.AddArgument("--disable-dev-shm-usage");
+        options.AddArgument("--disable-gpu");
+        
+        var driver = new ChromeDriver(options);
+        driver.Manage().Timeouts().PageLoad = TimeSpan.FromSeconds(30);
+        return driver;
+    }
+
+    private static string ConvertToPropertyName(string fileName)
+    {
+        var name = fileName;
+        if (name.Contains('_'))
+            name = name.Substring(0, name.LastIndexOf('_'));
+        return $"device.{name}";
+    }
+}
+
+// Serve over localhost HTTP, not file://. These snippets write document.cookie
+// and use sessionStorage; file:// gives an opaque origin where cookies no-op and
+// storage leaks across pages, changing behavior. Harden the server, don't switch.
+//
+// Bound ONCE for the whole test class and reused: each test swaps Content and the
+// accept loop resolves it per request. Constructing/disposing a listener per test
+// churned the port through TIME_WAIT on Linux, which starved later binds and
+// surfaced as "#status never left pending" timeouts.
+class SimpleHttpServer : IDisposable
+{
+    private readonly HttpListener _listener;
+    private readonly Thread _thread;
+    private volatile string _content = "";
+    private bool _running;
+
+    public int Port { get; }
+
+    /// <summary>HTML served for the next request. Set before navigating.</summary>
+    public string Content
+    {
+        get => _content;
+        set => _content = value;
+    }
+
+    public SimpleHttpServer()
+    {
+        // Bind a free port once. Fresh HttpListener per attempt: a failed Start()
+        // leaves the prefix attached, so reusing one listener would re-try the
+        // already-failed prefix and never bind, leaving Port=0.
+        HttpListener? bound = null;
+        for (int port = 8765; port < 9000 && bound == null; port++)
+        {
+            var listener = new HttpListener();
+            listener.Prefixes.Add($"http://localhost:{port}/");
+            try
+            {
+                listener.Start();
+                bound = listener;
+                Port = port;
+            }
+            catch
+            {
+                try { listener.Close(); } catch { }
+            }
+        }
+
+        if (bound == null)
+            throw new InvalidOperationException(
+                "SimpleHttpServer could not bind any port in range 8765-8999.");
+        _listener = bound;
+
+        _running = true;
+        _thread = new Thread(() =>
+        {
+            while (_running)
+            {
+                try
+                {
+                    var ctx = _listener.GetContext();
+                    var bytes = System.Text.Encoding.UTF8.GetBytes(_content);
+                    ctx.Response.ContentType = "text/html";
+                    ctx.Response.ContentLength64 = bytes.Length;
+                    ctx.Response.OutputStream.Write(bytes, 0, bytes.Length);
+                    ctx.Response.OutputStream.Close();
+                }
+                catch { }
+            }
+        }) { IsBackground = true };
+        _thread.Start();
+    }
+
+    public void Dispose()
+    {
+        _running = false;
+        try { _listener.Stop(); } catch { }
+        try { _listener.Close(); } catch { }
+    }
+}

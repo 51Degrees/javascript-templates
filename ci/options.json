@@ -1,0 +1,20 @@
+[
+    {
+        "Image": "ubuntu-latest",
+        "Name": "Ubuntu_x64_Release",
+        "Configuration": "Release",
+        "Arch": "x64",
+        "BuildMethod": "dotnet",
+        "Language": "dotnet",
+        "LanguageVersion": "8.0.x"
+    },
+    {
+        "Image": "windows-latest",
+        "Name": "Windows_x64_Release",
+        "Configuration": "Release",
+        "Arch": "x64",
+        "BuildMethod": "dotnet",
+        "Language": "dotnet",
+        "LanguageVersion": "8.0.x"
+    }
+]
