@@ -52,14 +52,15 @@ public class SnippetTests
     }
 
     [TestMethod]
-    [DynamicData(nameof(GetSnippetTestCases), DynamicDataSourceType.Method)]
+    [DynamicData(nameof(GetSnippetTestCases), DynamicDataSourceType.Method,
+        DynamicDataDisplayName = nameof(GetSnippetDisplayName))]
     public void Snippet_ExecutesWithoutError(string propertyName, string snippet, string snippetFile)
     {
         var devicePropertyName = propertyName.Substring(propertyName.IndexOf('.') + 1);
         var renderedJs = RenderSnippetJs(propertyName, snippet);
         var html = BuildTestHtml(propertyName, renderedJs);
         
-        // Save HTML beside the .js file
+        // Save HTML beside the .js file for manual replication after a run.
         var htmlFile = snippetFile.Replace(".js", ".html");
         File.WriteAllText(htmlFile, html);
         Console.WriteLine($"[{propertyName}] HTML saved to: {htmlFile}");
@@ -159,15 +160,29 @@ public class SnippetTests
         using var server = new SimpleHttpServer(html);
         _driver.Navigate().GoToUrl($"http://localhost:{server.Port}/");
         
-        var statusEl = _driver.FindElement(By.Id("status"));
-        var deadline = DateTime.Now.AddSeconds(2);
-        while (DateTime.Now < deadline && statusEl.GetAttribute("class") == "pending")
+        // Poll for #status to exist AND leave "pending". GoToUrl can return
+        // before Chrome has swapped in the served document, so grabbing the
+        // element straight away races the page load and throws
+        // NoSuchElementException. Swallowing the not-yet-there element while
+        // polling lets a slow page read as a real result, not a missing element.
+        // (WebDriverWait lives in the Selenium.Support package, which we don't
+        // reference, so this is a hand-rolled equivalent.)
+        IWebElement? statusEl = null;
+        var deadline = DateTime.Now.AddSeconds(10);
+        while (DateTime.Now < deadline)
         {
+            try
+            {
+                var el = _driver.FindElement(By.Id("status"));
+                if (el.GetAttribute("class") != "pending") { statusEl = el; break; }
+            }
+            catch (NoSuchElementException) { /* page not loaded yet */ }
             System.Threading.Thread.Sleep(50);
-            statusEl = _driver.FindElement(By.Id("status"));
         }
+        Assert.IsNotNull(statusEl,
+            $"{propertyName}: #status never left 'pending' within 10s (page did not load or snippet hung)");
         
-        var statusClass = statusEl.GetAttribute("class");
+        var statusClass = statusEl!.GetAttribute("class");
         var statusText = statusEl.Text;
         string errors = "";
         string logs = "";
@@ -187,6 +202,16 @@ public class SnippetTests
             Assert.Fail($"{propertyName} failed.\nPage: {errors}\nBrowser: {string.Join("\n", jsErrors)}");
         if (jsErrors.Any())
             Assert.Fail($"{propertyName} browser errors:\n" + string.Join("\n", jsErrors));
+    }
+
+    // Builds each test's display name from the property + snippet file only.
+    // Without this, [DynamicData] stringifies ALL args - including the full
+    // snippet source - into the name, dumping every snippet body into the CI log.
+    public static string GetSnippetDisplayName(System.Reflection.MethodInfo methodInfo, object[] data)
+    {
+        var propertyName = (string)data[0];
+        var snippetFile = Path.GetFileName((string)data[2]);
+        return $"{methodInfo.Name}({propertyName}, {snippetFile})";
     }
 
     public static IEnumerable<object[]> GetSnippetTestCases()
@@ -237,6 +262,9 @@ public class SnippetTests
     }
 }
 
+// Serve over localhost HTTP, not file://. These snippets write document.cookie
+// and use sessionStorage; file:// gives an opaque origin where cookies no-op and
+// storage leaks across pages, changing behavior. Harden the server, don't switch.
 class SimpleHttpServer : IDisposable
 {
     private readonly HttpListener _listener;
