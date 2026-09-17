@@ -31,11 +31,13 @@ using System.Net;
 namespace FiftyOne.JavascriptTemplateTests;
 
 [TestClass]
+[DoNotParallelize] // one shared driver + one shared server; tests must not overlap
 public class SnippetTests
 {
     private static ChromeDriver _driver = null!;
     private static string _baseDir = null!;
     private static string _template = null!;
+    private static SimpleHttpServer _server = null!;
 
     [ClassInitialize]
     public static void ClassInit(TestContext context)
@@ -43,12 +45,14 @@ public class SnippetTests
         _baseDir = FindBaseDirectory();
         _template = File.ReadAllText(Path.Combine(_baseDir, "JavaScriptResource.mustache"));
         _driver = CreateDriver();
+        _server = new SimpleHttpServer();
     }
 
     [ClassCleanup]
     public static void ClassCleanup()
     {
         _driver?.Quit();
+        _server?.Dispose();
     }
 
     [TestMethod]
@@ -157,8 +161,8 @@ public class SnippetTests
 
     private void RunTestInBrowser(string html, string propertyName)
     {
-        using var server = new SimpleHttpServer(html);
-        _driver.Navigate().GoToUrl($"http://localhost:{server.Port}/");
+        _server.Content = html;
+        _driver.Navigate().GoToUrl($"http://localhost:{_server.Port}/");
         
         // Poll for #status to exist AND leave "pending". GoToUrl can return
         // before Chrome has swapped in the served document, so grabbing the
@@ -265,31 +269,53 @@ public class SnippetTests
 // Serve over localhost HTTP, not file://. These snippets write document.cookie
 // and use sessionStorage; file:// gives an opaque origin where cookies no-op and
 // storage leaks across pages, changing behavior. Harden the server, don't switch.
+//
+// Bound ONCE for the whole test class and reused: each test swaps Content and the
+// accept loop resolves it per request. Constructing/disposing a listener per test
+// churned the port through TIME_WAIT on Linux, which starved later binds and
+// surfaced as "#status never left pending" timeouts.
 class SimpleHttpServer : IDisposable
 {
     private readonly HttpListener _listener;
     private readonly Thread _thread;
-    private readonly string _content;
+    private volatile string _content = "";
     private bool _running;
 
     public int Port { get; }
 
-    public SimpleHttpServer(string content)
+    /// <summary>HTML served for the next request. Set before navigating.</summary>
+    public string Content
     {
-        _content = content;
-        _listener = new HttpListener();
-        
-        for (int port = 8765; port < 9000; port++)
+        get => _content;
+        set => _content = value;
+    }
+
+    public SimpleHttpServer()
+    {
+        // Bind a free port once. Fresh HttpListener per attempt: a failed Start()
+        // leaves the prefix attached, so reusing one listener would re-try the
+        // already-failed prefix and never bind, leaving Port=0.
+        HttpListener? bound = null;
+        for (int port = 8765; port < 9000 && bound == null; port++)
         {
+            var listener = new HttpListener();
+            listener.Prefixes.Add($"http://localhost:{port}/");
             try
             {
-                _listener.Prefixes.Add($"http://localhost:{port}/");
-                _listener.Start();
+                listener.Start();
+                bound = listener;
                 Port = port;
-                break;
             }
-            catch { }
+            catch
+            {
+                try { listener.Close(); } catch { }
+            }
         }
+
+        if (bound == null)
+            throw new InvalidOperationException(
+                "SimpleHttpServer could not bind any port in range 8765-8999.");
+        _listener = bound;
 
         _running = true;
         _thread = new Thread(() =>
