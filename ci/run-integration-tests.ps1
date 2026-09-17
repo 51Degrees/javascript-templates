@@ -104,7 +104,15 @@ $TestProject = [IO.Path]::Combine(
     $RepoPath, "tests", "FiftyOne.JavascriptTemplateTests",
     "FiftyOne.JavascriptTemplateTests.csproj")
 
+# The EnricoMi publish step in common-ci globs test-results/integration/**/*.trx
+# under the repo root. dotnet test defaults the TRX to the project's own
+# TestResults/ dir, which that glob never matches (results silently unreported),
+# so pin --results-directory to the location the reporter searches.
+$ResultsDir = [IO.Path]::Combine($RepoPath, "test-results", "integration")
+New-Item -ItemType Directory -Path $ResultsDir -Force | Out-Null
+
 dotnet test $TestProject -c $Configuration `
+    --results-directory $ResultsDir `
     --logger "console;verbosity=normal" `
     --logger "trx;LogFileName=snippet-integration.trx"
 

@@ -1,0 +1,5 @@
+# This directory is populated with test result reports (JUnit XML / TRX)
+# during CI so the results-publishing step can pick them up.
+# Do not commit generated test results to version control.
+*
+!.gitignore
