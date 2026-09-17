@@ -1,0 +1,18 @@
+name: Monthly Copyright Update
+
+on:
+  workflow_dispatch:
+  schedule:
+    # * is a special character in YAML so quote this string
+    - cron:  '0 0 1 * *'
+
+jobs:
+  # Run the common workflow that rewrites copyright headers and opens a PR.
+  # The resulting PR is validated and merged by the Pull Requests pipeline.
+  Monthly_Copyright_Update:
+    uses: 51Degrees/common-ci/.github/workflows/monthly-copyright-update.yml@main
+    with:
+      repo-name: ${{ github.event.repository.name }}
+      org-name: ${{ github.event.repository.owner.login }}
+    secrets:
+      token: ${{ secrets.ACCESS_TOKEN }}

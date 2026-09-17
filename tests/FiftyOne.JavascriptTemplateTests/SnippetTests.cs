@@ -193,8 +193,7 @@ public class SnippetTests
     {
         var baseDir = _baseDir ?? FindBaseDirectory();
         var snippetsDir = Path.Combine(baseDir, "snippets");
-        
-        // TEMPORARY: Only first 3 snippets for debugging
+
         foreach (var file in Directory.GetFiles(snippetsDir, "*.js"))
         {
             var name = Path.GetFileNameWithoutExtension(file);
