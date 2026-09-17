@@ -31,7 +31,7 @@ param(
     # produces the snippets under test - the equivalent of the examples repo
     # that device-detection-dotnet clones for its integration coverage.
     [string]$SnippetToolRepo = "device-detection-cxx",
-    [string]$SnippetToolBranch = "main"
+    [string]$SnippetToolBranch = "feature/js-snippet-export"
 )
 $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $true
