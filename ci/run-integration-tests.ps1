@@ -39,14 +39,15 @@ Set-StrictMode -Version 1.0
 
 $RepoPath = [IO.Path]::Combine($pwd, $RepoName)
 
-# The snippet sweep needs a data file to generate from and Chrome to run the
-# rendered scripts. On runners where neither is available (e.g. an automation
-# PR without the data-file secret), skip rather than fail the merge gate -
-# this mirrors the guarded pattern in device-detection-dotnet.
+# The snippet sweep needs the enterprise TAC data file (it carries the full set
+# of JavaScript property snippets - Lite has only a handful) and Chrome to run
+# the rendered scripts. On runners where the data file is unavailable (e.g. an
+# automation PR without the data-file secret), skip rather than fail the merge
+# gate - this mirrors the guarded pattern in device-detection-dotnet.
 $dataFile = Resolve-Path -ErrorAction SilentlyContinue `
-    ([IO.Path]::Combine($pwd, "assets", "51Degrees-LiteV4.1.hash"))
+    ([IO.Path]::Combine($pwd, "assets", "TAC-HashV41.hash"))
 if (-not $dataFile) {
-    Write-Host "::warning::No Hash data file found under assets/ - skipping snippet integration tests."
+    Write-Host "::warning::No TAC Hash data file found under assets/ - skipping snippet integration tests."
     exit 0
 }
 

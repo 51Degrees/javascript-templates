@@ -26,8 +26,9 @@ param (
 )
 $ErrorActionPreference = "Stop"
 
-# The snippet integration test needs a Hash data file to feed the
-# js-snippet-export tool from device-detection-cxx. The lite file is enough to
-# exercise every JavaScript property, and it is redistributable.
+# The snippet integration test drives every JavaScript property snippet through
+# the template. The full set of snippets only exists in the enterprise TAC data
+# file - the Lite file carries only a handful - so TAC is required for complete
+# coverage.
 ./steps/fetch-assets.ps1 -DeviceDetection:$DeviceDetection -DeviceDetectionUrl:$DeviceDetectionUrl `
-    -Assets "51Degrees-LiteV4.1.hash"
+    -Assets "TAC-HashV41.hash"
