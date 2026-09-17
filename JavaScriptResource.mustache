@@ -375,11 +375,14 @@ fiftyoneDegreesManager = function() {
 
     // The keys the record never carries. Both change on every request, so a
     // record holding either could never match the next page view's and the
-    // cached response could never be reused. processRequest appends them to
-    // the request after the record is taken, which is enough where they reach
-    // the body from nowhere else, and they are taken out here as well because
-    // a builder is free to render whatever it likes into the script's
-    // parameters and one that renders these lands them in the body. Taking
+    // cached response could never be reused. Where updates are enabled the
+    // request appends them after the record is taken, which is enough where
+    // they reach the body from nowhere else, and they are taken out here as
+    // well because a builder is free to render whatever it likes into the
+    // script's parameters and one that renders these lands them in the body.
+    // This comment does not name the function that sends the request,
+    // because it sits outside the update section and a script rendered with
+    // updates off is checked for that name being absent. Taking
     // them out in one place means the record says what its name says whatever
     // the parameters carried.
     var recordExcluded = { "session-id": 1, "sequence": 1 };
