@@ -665,9 +665,9 @@ function logged(result, text) {
     check('the first request carries no answer',
         view.endpoint.bodies[0].indexOf('id.usage') === -1,
         view.endpoint.bodies[0]);
-    check('a page with no platform at construction is warned once',
+    check('a page still loading is not warned about a missing platform',
         view.log.filter(e => String(e[1]).indexOf(
-            '51Degrees: no preference platform') === 0).length === 1,
+            '51Degrees: no preference platform') === 0).length === 0,
         JSON.stringify(view.log));
     check('no value is printed by the block',
         !logged(view, 'standard') && !logged(view, 'purple'),
@@ -1239,6 +1239,193 @@ function logged(result, text) {
         answered.context.fod.fodid &&
         answered.context.fod.fodid.fodid === 'ABC123',
         JSON.stringify(answered.context.fod.fodid));
+}
+
+// ---------------------------------------------------------------------------
+section('The wait before the missing platform warning');
+// ---------------------------------------------------------------------------
+
+// The warning is the only signal a page with no platform gets, so it has to
+// survive, but a platform's bundle loads asynchronously and is ordinarily not
+// registered when this script constructs. Printing at construction called an
+// ordinary integration broken. The wait matches the one a platform makes for
+// this script's object, ending at the page's load event or after 5000
+// milliseconds, whichever comes first, and it is skipped where the page has
+// already loaded.
+
+// A setTimeout the test drives, so the 5000 millisecond limit can be reached
+// without the test waiting five seconds for it.
+function makeClock() {
+    const pending = [];
+    return {
+        setTimeout: function (fn, ms) {
+            pending.push({ fn: fn, ms: ms });
+            return pending.length;
+        },
+        clearTimeout: function () {},
+        pending: pending,
+        // Run every timer set for this delay, in the order they were set.
+        fire: function (ms) {
+            const due = pending.filter(t => t.ms === ms);
+            due.forEach(t => t.fn());
+            return due.length;
+        }
+    };
+}
+
+function platformWarnings(view) {
+    return view.log.filter(e => e[0] === 'warn' && String(e[1]).indexOf(
+        '51Degrees: no preference platform') === 0);
+}
+
+const noPlatformModel = { _userPrompt: true, _parameters: '{"mark":"one"}' };
+
+{
+    // 20. The page loads with no platform on it, which is the case the
+    //     warning is for, and the load event is what ends the wait.
+    const view = pageView(makeTab(), {
+        model: noPlatformModel, responses: [secondPayload]
+    });
+    await settle(12);
+    check('nothing is said whilst the page is still loading',
+        platformWarnings(view).length === 0, JSON.stringify(view.log));
+    check('the wait is held on the page\'s load event',
+        view.context.__listenerCount('load') === 1,
+        'listeners ' + view.context.__listenerCount('load'));
+
+    view.context.__fire('load');
+    await settle(4);
+    check('a page that loads with no platform is warned once',
+        platformWarnings(view).length === 1, JSON.stringify(view.log));
+    check('the warning is the one the page always got',
+        platformWarnings(view)[0][1] ===
+        '51Degrees: no preference platform was found on this page. ' +
+        'A platform\'s stub must precede this script. No 51Did will be ' +
+        'created until a platform answers.',
+        JSON.stringify(platformWarnings(view)));
+    check('the load listener is removed once the wait has ended',
+        view.context.__listenerCount('load') === 0,
+        'listeners ' + view.context.__listenerCount('load'));
+
+    view.context.__fire('load');
+    await settle(4);
+    check('a second load event says it again no more than once',
+        platformWarnings(view).length === 1, JSON.stringify(view.log));
+}
+
+{
+    // 21. The limit ends the wait for a page whose load event is very late or
+    //     never comes, and it is the same 5000 milliseconds a platform waits
+    //     for this script.
+    const clock = makeClock();
+    const view = pageView(makeTab(), {
+        model: noPlatformModel, responses: [secondPayload],
+        globals: { setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout }
+    });
+    await settle(2);
+    check('the wait is bounded at 5000 milliseconds',
+        clock.pending.filter(t => t.ms === 5000).length === 1,
+        JSON.stringify(clock.pending.map(t => t.ms)));
+    check('nothing is said before that limit is reached',
+        platformWarnings(view).length === 0, JSON.stringify(view.log));
+
+    clock.fire(5000);
+    check('a page whose load event never comes is warned at the limit',
+        platformWarnings(view).length === 1, JSON.stringify(view.log));
+
+    view.context.__fire('load');
+    check('a load event after the limit does not say it twice',
+        platformWarnings(view).length === 1, JSON.stringify(view.log));
+}
+
+{
+    // 22. An answer that arrives during the wait means a 51Did is created, so
+    //     there is nothing to warn about and nothing is printed.
+    const view = pageView(makeTab(), {
+        model: noPlatformModel, responses: [secondPayload, didPayload]
+    });
+    await settle(12);
+    view.context.__fire('51d-pmp-preference', { preference: 'standard' });
+    await settle(12);
+    view.context.__fire('load');
+    await settle(4);
+    check('an answer arriving during the wait stops the warning',
+        platformWarnings(view).length === 0, JSON.stringify(view.log));
+    check('that answer still reached the request',
+        view.endpoint.bodies.length === 2 &&
+        view.endpoint.bodies[1].indexOf('id.usage=standard') !== -1,
+        JSON.stringify(view.endpoint.bodies));
+}
+
+{
+    // 23. A platform that registers during the wait, which is the ordinary
+    //     asynchronous integration and the case that produced the noise.
+    const framework = makeFramework(null);
+    const view = pageView(makeTab(), {
+        model: noPlatformModel, responses: [secondPayload, didPayload]
+    });
+    await settle(12);
+    view.context.__tcfapi = framework.api;
+    view.context.__fire('load');
+    await settle(4);
+    check('a platform that registers during the wait stops the warning',
+        platformWarnings(view).length === 0, JSON.stringify(view.log));
+}
+
+{
+    // 24. A page that has already loaded when this script runs waits for
+    //     nothing, because a platform that is not there then is not coming
+    //     from a tag the markup carries.
+    const clock = makeClock();
+    const view = pageView(makeTab(), {
+        model: noPlatformModel, responses: [secondPayload],
+        globals: {
+            document: { readyState: 'complete' },
+            setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout
+        }
+    });
+    await settle(2);
+    check('a page that has already loaded is warned at once',
+        platformWarnings(view).length === 1, JSON.stringify(view.log));
+    check('a page that has already loaded waits for nothing',
+        clock.pending.filter(t => t.ms === 5000).length === 0 &&
+        view.context.__listenerCount('load') === 0,
+        JSON.stringify(clock.pending.map(t => t.ms)) + ' listeners ' +
+        view.context.__listenerCount('load'));
+}
+
+{
+    // 25. A platform found at construction is never waited for and never
+    //     warned about, which is the behaviour the block always had.
+    const clock = makeClock();
+    const framework = makeFramework(null);
+    const view = pageView(makeTab(), {
+        model: noPlatformModel, responses: [secondPayload, didPayload],
+        globals: {
+            __tcfapi: framework.api,
+            setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout
+        }
+    });
+    await settle(12);
+    check('a platform at construction is not waited for',
+        clock.pending.filter(t => t.ms === 5000).length === 0 &&
+        view.context.__listenerCount('load') === 0,
+        JSON.stringify(clock.pending.map(t => t.ms)) + ' listeners ' +
+        view.context.__listenerCount('load'));
+    check('a platform at construction is never warned about',
+        platformWarnings(view).length === 0, JSON.stringify(view.log));
+}
+
+{
+    // 26. The wait belongs to the user prompt block alone, so a page rendered
+    //     without the block carries neither the warning nor the limit.
+    const withoutBlock = render({ _userPrompt: false });
+    check('the missing platform warning is only in the user prompt block',
+        withoutBlock.indexOf('no preference platform') === -1,
+        'found at ' + withoutBlock.indexOf('no preference platform'));
+    check('the 5000 millisecond limit is only in the user prompt block',
+        withoutBlock.indexOf('5000') === -1,
+        'found at ' + withoutBlock.indexOf('5000'));
 }
 
 
