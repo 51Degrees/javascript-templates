@@ -1,9 +1,21 @@
 name: Consumer tests
 
 # The templates are consumed as a submodule, so a change here is only ever
-# exercised by the SDKs that embed it. This builds one of them against the
-# revision under review and runs the tests that drive the template in a real
-# browser, which is the only place its behaviour is visible.
+# exercised by the SDKs that embed it. This builds every one of them against
+# the revision under review and runs its JavaScript builder tests.
+#
+# Six SDKs render the templates. .NET, Java, Node and Python embed them as a
+# submodule. PHP and Rust carry a copy of the file, which does not follow
+# this repository on its own, so for those two the job also says when the
+# copy differs from main here. Every one of them is expected to render the
+# same script from the same evidence, so a
+# change here that suits one and not another is a fault in the change or in
+# that builder, and either way it should be found here rather than after a
+# package carrying it has been published.
+#
+# That is not a hypothetical. A change that was correct for .NET reached
+# PyPI and broke the session storage cache for Python, because .NET was the
+# only builder whose tests ran against the template at all.
 
 on:
   pull_request:
@@ -14,6 +26,26 @@ on:
     inputs:
       pipeline-dotnet-ref:
         description: Branch, tag or SHA of pipeline-dotnet to test against
+        required: false
+        default: main
+      pipeline-java-ref:
+        description: Branch, tag or SHA of pipeline-java to test against
+        required: false
+        default: main
+      pipeline-node-ref:
+        description: Branch, tag or SHA of pipeline-node to test against
+        required: false
+        default: main
+      pipeline-python-ref:
+        description: Branch, tag or SHA of pipeline-python to test against
+        required: false
+        default: main
+      pipeline-php-core-ref:
+        description: Branch, tag or SHA of pipeline-php-core to test against
+        required: false
+        default: main
+      rust-ref:
+        description: Branch, tag or SHA of rust to test against
         required: false
         default: main
 
@@ -80,3 +112,240 @@ jobs:
           name: pipeline-dotnet-results
           path: consumer/**/TestResults/*.trx
           if-no-files-found: warn
+
+  pipeline-java:
+    name: pipeline-java JavaScript builder
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the template under review
+        uses: actions/checkout@v4
+        with:
+          path: template
+
+      - name: Check out pipeline-java
+        uses: actions/checkout@v4
+        with:
+          repository: 51Degrees/pipeline-java
+          ref: ${{ inputs.pipeline-java-ref || 'main' }}
+          submodules: recursive
+          path: consumer
+
+      - name: Swap in the template under review
+        run: |
+          set -euo pipefail
+          dest=consumer/pipeline.javascriptbuilder/src/main/resources/fiftyone/pipeline/javascriptbuilder/templates
+          if [ ! -d "$dest" ]; then
+            echo "::error::$dest is missing - the submodule has moved and this workflow needs updating"
+            exit 1
+          fi
+          cp template/*.mustache "$dest/"
+          if git -C "$dest" diff --quiet; then
+            echo "::notice::identical to the revision pipeline-java pins, nothing swapped in"
+          else
+            git -C "$dest" --no-pager diff --stat
+          fi
+
+      # Java 11 rather than 8. The module drops JavaScriptBuilderTests at test
+      # compilation on 8, because Selenium's classes are built for 11, so a
+      # run on 8 would report a pass without having built the tests that drive
+      # the template.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '11'
+
+      - name: Report the browser under test
+        run: |
+          google-chrome --version || echo "::warning::no google-chrome on the runner"
+          chromedriver --version || echo "::warning::no chromedriver on the runner"
+
+      - name: Run the JavaScript builder tests
+        working-directory: consumer
+        run: |
+          set -euo pipefail
+          mvn -B -q -pl pipeline.javascriptbuilder -am -DskipTests install
+          mvn -B -pl pipeline.javascriptbuilder test
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-java-results
+          path: consumer/**/surefire-reports/*.xml
+          if-no-files-found: warn
+
+  pipeline-node:
+    name: pipeline-node JavaScript builder
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the template under review
+        uses: actions/checkout@v4
+        with:
+          path: template
+
+      - name: Check out pipeline-node
+        uses: actions/checkout@v4
+        with:
+          repository: 51Degrees/pipeline-node
+          ref: ${{ inputs.pipeline-node-ref || 'main' }}
+          submodules: recursive
+          path: consumer
+
+      - name: Swap in the template under review
+        run: |
+          set -euo pipefail
+          dest=consumer/fiftyone.pipeline.core/javascript-templates
+          if [ ! -d "$dest" ]; then
+            echo "::error::$dest is missing - the submodule has moved and this workflow needs updating"
+            exit 1
+          fi
+          cp template/*.mustache "$dest/"
+          if git -C "$dest" diff --quiet; then
+            echo "::notice::identical to the revision pipeline-node pins, nothing swapped in"
+          else
+            git -C "$dest" --no-pager diff --stat
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run the JavaScript builder tests
+        working-directory: consumer/fiftyone.pipeline.core
+        run: |
+          set -euo pipefail
+          npm install
+          npx jest tests/javascriptbuilder.test.js
+
+  pipeline-python:
+    name: pipeline-python JavaScript builder
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the template under review
+        uses: actions/checkout@v4
+        with:
+          path: template
+
+      - name: Check out pipeline-python
+        uses: actions/checkout@v4
+        with:
+          repository: 51Degrees/pipeline-python
+          ref: ${{ inputs.pipeline-python-ref || 'main' }}
+          submodules: recursive
+          path: consumer
+
+      - name: Swap in the template under review
+        run: |
+          set -euo pipefail
+          dest=consumer/fiftyone_pipeline_core/src/fiftyone_pipeline_core/js_templates
+          if [ ! -d "$dest" ]; then
+            echo "::error::$dest is missing - the submodule has moved and this workflow needs updating"
+            exit 1
+          fi
+          cp template/*.mustache "$dest/"
+          if git -C "$dest" diff --quiet; then
+            echo "::notice::identical to the revision pipeline-python pins, nothing swapped in"
+          else
+            git -C "$dest" --no-pager diff --stat
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Run the JavaScript builder tests
+        working-directory: consumer/fiftyone_pipeline_core
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -m pip install pytest parameterized
+          python -m pytest tests/test_javascriptbuilder.py -q
+
+  pipeline-php-core:
+    name: pipeline-php-core JavaScript builder
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the template under review
+        uses: actions/checkout@v4
+        with:
+          path: template
+
+      - name: Check out pipeline-php-core
+        uses: actions/checkout@v4
+        with:
+          repository: 51Degrees/pipeline-php-core
+          ref: ${{ inputs.pipeline-php-core-ref || 'main' }}
+          submodules: recursive
+          path: consumer
+
+      # A copy rather than a submodule, so it is compared with the file as
+      # it was before the swap and reported, since a copy that has fallen
+      # behind is a difference in what this SDK serves.
+      - name: Swap in the template under review
+        run: |
+          set -euo pipefail
+          file=javascript-templates/JavaScriptResource.mustache
+          if [ ! -f "consumer/$file" ]; then
+            echo "::error::consumer/$file is missing - the copy has moved and this workflow needs updating"
+            exit 1
+          fi
+          cp template/JavaScriptResource.mustache "consumer/$file"
+          if git -C consumer diff --quiet -- "$file"; then
+            echo "::notice::the copy in pipeline-php-core is identical to the revision under review"
+          else
+            echo "::warning::the copy in pipeline-php-core differs from the revision under review"
+            git -C consumer --no-pager diff --stat -- "$file"
+          fi
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          tools: composer
+
+      - name: Run the unit tests
+        working-directory: consumer
+        run: |
+          set -euo pipefail
+          composer install --no-interaction --no-progress
+          vendor/bin/phpunit --testsuite Unit
+
+  rust:
+    name: rust JavaScript builder
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the template under review
+        uses: actions/checkout@v4
+        with:
+          path: template
+
+      - name: Check out rust
+        uses: actions/checkout@v4
+        with:
+          repository: 51Degrees/rust
+          ref: ${{ inputs.rust-ref || 'main' }}
+          submodules: recursive
+          path: consumer
+
+      # A copy embedded with include_str!, so the same comparison as PHP.
+      - name: Swap in the template under review
+        run: |
+          set -euo pipefail
+          file=javascript-builder/assets/JavaScriptResource.mustache
+          if [ ! -f "consumer/$file" ]; then
+            echo "::error::consumer/$file is missing - the copy has moved and this workflow needs updating"
+            exit 1
+          fi
+          cp template/JavaScriptResource.mustache "consumer/$file"
+          if git -C consumer diff --quiet -- "$file"; then
+            echo "::notice::the copy in rust is identical to the revision under review"
+          else
+            echo "::warning::the copy in rust differs from the revision under review"
+            git -C consumer --no-pager diff --stat -- "$file"
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Run the JavaScript builder tests
+        working-directory: consumer
+        run: cargo test -p fiftyone-javascript-builder
