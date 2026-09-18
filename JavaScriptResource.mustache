@@ -279,6 +279,13 @@ fiftyoneDegreesManager = function() {
                         if(startsWith(nextKey, session51DataPrefix)){
                             let name =
                                 nextKey.substring(session51DataPrefix.length);
+                            // A name holding a quote was stored by an earlier
+                            // version of this script, which took the text of
+                            // a join for a fixed name. No snippet writes a
+                            // result by that name, so it is not sent.
+                            if(name.indexOf('"') !== -1){
+                                continue;
+                            }
                             if(!Object.prototype.hasOwnProperty.call(
                                 fodValues, name)){
                                 fodValues[name] = window.sessionStorage[nextKey];
@@ -796,7 +803,20 @@ fiftyoneDegreesManager = function() {
         // then process them and perform any call-backs required.
         if (jsProperties !== undefined && jsProperties.length > 0) {
 
-            let valueSetPrefix = new RegExp('document\\.cookie\\s*=\\s*(("([A-Za-z0-9_"\\s\\+]+)\\s*=\\s*"\\s*\\+\\s*([^\\s};]+))|(`([A-Za-z0-9_]+)\\s*=\\s*\\$\\{([^}]+)\\}`))', 'g');
+            // The stores a snippet makes, found in its text. Group 3 is the
+            // name of a quoted store and group 6 the name of a template
+            // literal store, and groups 4 and 7 start their values. A quoted
+            // name is a fixed start, optionally joined with + to further
+            // quoted text and to plain variable names, as in
+            // "51D_Pos_" + key + "=" and "51D_Bandwidth" + "=". Group 3 then
+            // holds the text between the outer quotes, so the rewrite below
+            // puts the same join inside the session storage key and the
+            // snippet builds the same name there as it would for a cookie.
+            // Any other form, such as a name joined to a member or a call,
+            // or a template literal with anything but a fixed name and one
+            // value, is not matched, and its store is left as it is rather
+            // than rewritten under a name the pattern did not understand.
+            let valueSetPrefix = new RegExp('document\\.cookie\\s*=\\s*(("([A-Za-z0-9_]+(?:"\\s*\\+\\s*(?:[A-Za-z_$][A-Za-z0-9_$]*\\s*\\+\\s*)*"[A-Za-z0-9_]*)*)\\s*=\\s*"\\s*\\+\\s*([^\\s};]+))|(`([A-Za-z0-9_]+)\\s*=\\s*\\$\\{([^}]+)\\}`))', 'g');
             let session51DataPrefix = sessionKey + "_data_";
             {{^_enableCookies}}
             let sessionSetPatch = 'window.sessionStorage["' + session51DataPrefix + '$3$6"]=$4$7';
@@ -811,12 +831,23 @@ fiftyoneDegreesManager = function() {
             // result goes to session storage whatever the cookie setting, so
             // the script gains no cookie write of its own, and
             // getFodSavedValues falls back to that result for a name the
-            // cookies do not carry.
+            // cookies do not carry. A quoted name joined only to further
+            // quoted text is one fixed name once the joins are removed. A
+            // quote left after that means a variable is joined in, so the
+            // name is only known as the snippet runs and nothing is stored
+            // for it here, because storing the text of the join would send
+            // the server a name no snippet writes.
             let storeEmptyValues = function(snippet) {
                 let found;
                 valueSetPrefix.lastIndex = 0;
                 while ((found = valueSetPrefix.exec(snippet)) !== null) {
-                    let valueName = found[3] || found[6];
+                    let valueName = found[6];
+                    if (found[3]) {
+                        valueName = found[3].replace(/"\s*\+\s*"/g, '');
+                        if (valueName.indexOf('"') !== -1) {
+                            continue;
+                        }
+                    }
                     if (!valueName) {
                         continue;
                     }
