@@ -540,8 +540,9 @@ fiftyoneDegreesManager = function() {
             return "id.usage=" + preference;
         }
         if (typeof frameworkString === 'string' && frameworkString.length > 0) {
-            // A string is never mapped to a usage here. IabTcfElement does
-            // that on the server and two copies would drift.
+            // A string is never mapped to a usage here. The cloud service
+            // turns the framework string into a usage on the server, and two
+            // copies would drift.
             return "tcstring=" + frameworkString;
         }
         return undefined;
