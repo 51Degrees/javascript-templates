@@ -25,7 +25,7 @@ on:
   workflow_dispatch:
     inputs:
       pipeline-dotnet-ref:
-        description: Branch, tag or SHA of pipeline-dotnet to test against
+        description: Branch, tag or SHA of 51degrees-dotnet to test against
         required: false
         default: main
       pipeline-java-ref:
@@ -54,7 +54,7 @@ permissions:
 
 jobs:
   pipeline-dotnet:
-    name: pipeline-dotnet JavaScript builder
+    name: 51degrees-dotnet JavaScript builder
     runs-on: ubuntu-latest
     steps:
       - name: Check out the template under review
@@ -62,28 +62,30 @@ jobs:
         with:
           path: template
 
-      - name: Check out pipeline-dotnet
+      - name: Check out 51degrees-dotnet
         uses: actions/checkout@v4
         with:
-          repository: 51Degrees/pipeline-dotnet
+          repository: 51Degrees/51degrees-dotnet
           ref: ${{ inputs.pipeline-dotnet-ref || 'main' }}
-          submodules: recursive
+          # The Pipeline API packages are under pipeline/ and need only the
+          # direct submodules, not the data files under cxx/.
+          submodules: true
           path: consumer
 
       - name: Swap in the template under review
         run: |
           set -euo pipefail
-          dest=consumer/FiftyOne.Pipeline.Elements/FiftyOne.Pipeline.JavaScriptBuilderElement/Templates
+          dest=consumer/pipeline/JavaScriptBuilderElement/Templates
           if [ ! -d "$dest" ]; then
             echo "::error::$dest is missing - the submodule has moved and this workflow needs updating"
             exit 1
           fi
           cp template/*.mustache "$dest/"
           # The templates are embedded resources. If the copy changed nothing
-          # then the run would exercise the revision pipeline-dotnet pins and
+          # then the run would exercise the revision 51degrees-dotnet pins and
           # report a pass that says nothing about this pull request.
           if git -C "$dest" diff --quiet; then
-            echo "::notice::identical to the revision pipeline-dotnet pins, nothing swapped in"
+            echo "::notice::identical to the revision 51degrees-dotnet pins, nothing swapped in"
           else
             git -C "$dest" --no-pager diff --stat
           fi
@@ -98,10 +100,11 @@ jobs:
           chromedriver --version || echo "::warning::no chromedriver on the runner"
 
       - name: Run the JavaScript builder tests
-        working-directory: consumer
+        # pipeline/global.json pins the .NET 8 SDK installed above.
+        working-directory: consumer/pipeline
         run: >
           dotnet test -c Release
-          FiftyOne.Pipeline.Elements/FiftyOne.Pipeline.JavaScriptBuilderElementTests/FiftyOne.Pipeline.JavaScriptBuilderElementTests.csproj
+          Tests/JavaScriptBuilderElementTests/FiftyOne.Pipeline.JavaScriptBuilderElementTests.csproj
           --logger "console;verbosity=normal"
           --logger "trx;LogFileName=results.trx"
 
@@ -109,7 +112,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pipeline-dotnet-results
+          name: 51degrees-dotnet-results
           path: consumer/**/TestResults/*.trx
           if-no-files-found: warn
 
