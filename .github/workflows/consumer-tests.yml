@@ -37,7 +37,7 @@ on:
         required: false
         default: main
       pipeline-python-ref:
-        description: Branch, tag or SHA of pipeline-python to test against
+        description: Branch, tag or SHA of 51degrees-python to test against
         required: false
         default: main
       pipeline-php-core-ref:
@@ -225,7 +225,7 @@ jobs:
           npx jest tests/javascriptbuilder.test.js
 
   pipeline-python:
-    name: pipeline-python JavaScript builder
+    name: 51degrees-python JavaScript builder
     runs-on: ubuntu-latest
     steps:
       - name: Check out the template under review
@@ -233,25 +233,27 @@ jobs:
         with:
           path: template
 
-      - name: Check out pipeline-python
+      - name: Check out 51degrees-python
         uses: actions/checkout@v4
         with:
-          repository: 51Degrees/pipeline-python
+          repository: 51Degrees/51degrees-python
           ref: ${{ inputs.pipeline-python-ref || 'main' }}
-          submodules: recursive
+          # The Pipeline API packages are under pipeline/ and need only the
+          # direct submodules, not the data files under cxx/.
+          submodules: true
           path: consumer
 
       - name: Swap in the template under review
         run: |
           set -euo pipefail
-          dest=consumer/fiftyone_pipeline_core/src/fiftyone_pipeline_core/js_templates
+          dest=consumer/pipeline/fiftyone_pipeline_core/src/fiftyone_pipeline_core/js_templates
           if [ ! -d "$dest" ]; then
             echo "::error::$dest is missing - the submodule has moved and this workflow needs updating"
             exit 1
           fi
           cp template/*.mustache "$dest/"
           if git -C "$dest" diff --quiet; then
-            echo "::notice::identical to the revision pipeline-python pins, nothing swapped in"
+            echo "::notice::identical to the revision 51degrees-python pins, nothing swapped in"
           else
             git -C "$dest" --no-pager diff --stat
           fi
@@ -261,7 +263,7 @@ jobs:
           python-version: '3.13'
 
       - name: Run the JavaScript builder tests
-        working-directory: consumer/fiftyone_pipeline_core
+        working-directory: consumer/pipeline/fiftyone_pipeline_core
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
