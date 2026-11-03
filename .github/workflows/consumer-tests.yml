@@ -33,7 +33,7 @@ on:
         required: false
         default: main
       pipeline-node-ref:
-        description: Branch, tag or SHA of pipeline-node to test against
+        description: Branch, tag or SHA of 51degrees-node to test against
         required: false
         default: main
       pipeline-python-ref:
@@ -180,7 +180,7 @@ jobs:
           if-no-files-found: warn
 
   pipeline-node:
-    name: pipeline-node JavaScript builder
+    name: 51degrees-node JavaScript builder
     runs-on: ubuntu-latest
     steps:
       - name: Check out the template under review
@@ -188,25 +188,27 @@ jobs:
         with:
           path: template
 
-      - name: Check out pipeline-node
+      - name: Check out 51degrees-node
         uses: actions/checkout@v4
         with:
-          repository: 51Degrees/pipeline-node
+          repository: 51Degrees/51degrees-node
           ref: ${{ inputs.pipeline-node-ref || 'main' }}
-          submodules: recursive
+          # The Pipeline API packages are under pipeline/ and need only the
+          # direct submodules, not the data files under cxx/.
+          submodules: true
           path: consumer
 
       - name: Swap in the template under review
         run: |
           set -euo pipefail
-          dest=consumer/fiftyone.pipeline.core/javascript-templates
+          dest=consumer/pipeline/fiftyone.pipeline.core/javascript-templates
           if [ ! -d "$dest" ]; then
             echo "::error::$dest is missing - the submodule has moved and this workflow needs updating"
             exit 1
           fi
           cp template/*.mustache "$dest/"
           if git -C "$dest" diff --quiet; then
-            echo "::notice::identical to the revision pipeline-node pins, nothing swapped in"
+            echo "::notice::identical to the revision 51degrees-node pins, nothing swapped in"
           else
             git -C "$dest" --no-pager diff --stat
           fi
@@ -216,7 +218,7 @@ jobs:
           node-version: '22'
 
       - name: Run the JavaScript builder tests
-        working-directory: consumer/fiftyone.pipeline.core
+        working-directory: consumer/pipeline/fiftyone.pipeline.core
         run: |
           set -euo pipefail
           npm install
