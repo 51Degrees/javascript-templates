@@ -356,6 +356,13 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # fodid compiles the OWID source in, and this script copies it from the
+      # owid-rust submodule into fodid/src/owid, which git ignores.
+      - name: Copy the OWID source into fodid
+        working-directory: consumer
+        shell: pwsh
+        run: ./ci/copy-owid-source.ps1
+
       - name: Run the JavaScript builder tests
         working-directory: consumer
         run: cargo test -p fiftyone-javascript-builder
