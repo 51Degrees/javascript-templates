@@ -166,7 +166,7 @@ runs the tests that drive it in a real browser.
 
 This repo is not a stand-alone package, but is shipped as part of and used by each of the following repositories / packages:
 - [pipeline-dotnet](https://github.com/51Degrees/pipeline-dotnet) as a submodule
-- [pipeline-java](https://github.com/51Degrees/pipeline-java) as a submodule
+- [51degrees-java](https://github.com/51Degrees/51degrees-java) as a submodule, under `pipeline/`
 - [pipeline-node](https://github.com/51Degrees/pipeline-node) as a submodule
 - [pipeline-python](https://github.com/51Degrees/pipeline-python) as a submodule
 - [pipeline-php-core](https://github.com/51Degrees/pipeline-php-core) as a static dependency

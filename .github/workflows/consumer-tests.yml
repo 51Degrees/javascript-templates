@@ -29,7 +29,7 @@ on:
         required: false
         default: main
       pipeline-java-ref:
-        description: Branch, tag or SHA of pipeline-java to test against
+        description: Branch, tag or SHA of 51degrees-java to test against
         required: false
         default: main
       pipeline-node-ref:
@@ -114,7 +114,7 @@ jobs:
           if-no-files-found: warn
 
   pipeline-java:
-    name: pipeline-java JavaScript builder
+    name: 51degrees-java JavaScript builder
     runs-on: ubuntu-latest
     steps:
       - name: Check out the template under review
@@ -122,25 +122,27 @@ jobs:
         with:
           path: template
 
-      - name: Check out pipeline-java
+      - name: Check out 51degrees-java
         uses: actions/checkout@v4
         with:
-          repository: 51Degrees/pipeline-java
+          repository: 51Degrees/51degrees-java
           ref: ${{ inputs.pipeline-java-ref || 'main' }}
-          submodules: recursive
+          # The Pipeline API packages are under pipeline/ and need only the
+          # direct submodules, not the data files under cxx/.
+          submodules: true
           path: consumer
 
       - name: Swap in the template under review
         run: |
           set -euo pipefail
-          dest=consumer/pipeline.javascriptbuilder/src/main/resources/fiftyone/pipeline/javascriptbuilder/templates
+          dest=consumer/pipeline/pipeline.javascriptbuilder/src/main/resources/fiftyone/pipeline/javascriptbuilder/templates
           if [ ! -d "$dest" ]; then
             echo "::error::$dest is missing - the submodule has moved and this workflow needs updating"
             exit 1
           fi
           cp template/*.mustache "$dest/"
           if git -C "$dest" diff --quiet; then
-            echo "::notice::identical to the revision pipeline-java pins, nothing swapped in"
+            echo "::notice::identical to the revision 51degrees-java pins, nothing swapped in"
           else
             git -C "$dest" --no-pager diff --stat
           fi
@@ -160,7 +162,7 @@ jobs:
           chromedriver --version || echo "::warning::no chromedriver on the runner"
 
       - name: Run the JavaScript builder tests
-        working-directory: consumer
+        working-directory: consumer/pipeline
         run: |
           set -euo pipefail
           mvn -B -q -pl pipeline.javascriptbuilder -am -DskipTests install
@@ -170,7 +172,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pipeline-java-results
+          name: 51degrees-java-results
           path: consumer/**/surefire-reports/*.xml
           if-no-files-found: warn
 
