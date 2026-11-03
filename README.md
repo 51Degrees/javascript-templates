@@ -168,7 +168,7 @@ This repo is not a stand-alone package, but is shipped as part of and used by ea
 - [pipeline-dotnet](https://github.com/51Degrees/pipeline-dotnet) as a submodule
 - [pipeline-java](https://github.com/51Degrees/pipeline-java) as a submodule
 - [pipeline-node](https://github.com/51Degrees/pipeline-node) as a submodule
-- [pipeline-python](https://github.com/51Degrees/pipeline-python) as a submodule
+- [51degrees-python](https://github.com/51Degrees/51degrees-python) as a submodule, under `pipeline/`
 - [pipeline-php-core](https://github.com/51Degrees/pipeline-php-core) as a static dependency
 
 Wherever it is a submodule it will be updated by `Nightly Submodule Update` action, wherever it is a static dependency it will be updated by the `Nightly Package Update` action within a target repository.
