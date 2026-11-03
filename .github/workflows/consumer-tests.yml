@@ -45,7 +45,7 @@ on:
         required: false
         default: main
       rust-ref:
-        description: Branch, tag or SHA of rust to test against
+        description: Branch, tag or SHA of 51degrees-rust to test against
         required: false
         default: main
 
@@ -311,7 +311,7 @@ jobs:
           vendor/bin/phpunit --testsuite Unit
 
   rust:
-    name: rust JavaScript builder
+    name: 51degrees-rust JavaScript builder
     runs-on: ubuntu-latest
     steps:
       - name: Check out the template under review
@@ -319,10 +319,10 @@ jobs:
         with:
           path: template
 
-      - name: Check out rust
+      - name: Check out 51degrees-rust
         uses: actions/checkout@v4
         with:
-          repository: 51Degrees/rust
+          repository: 51Degrees/51degrees-rust
           ref: ${{ inputs.rust-ref || 'main' }}
           submodules: recursive
           path: consumer
@@ -338,9 +338,9 @@ jobs:
           fi
           cp template/JavaScriptResource.mustache "consumer/$file"
           if git -C consumer diff --quiet -- "$file"; then
-            echo "::notice::the copy in rust is identical to the revision under review"
+            echo "::notice::the copy in 51degrees-rust is identical to the revision under review"
           else
-            echo "::warning::the copy in rust differs from the revision under review"
+            echo "::warning::the copy in 51degrees-rust differs from the revision under review"
             git -C consumer --no-pager diff --stat -- "$file"
           fi
 
