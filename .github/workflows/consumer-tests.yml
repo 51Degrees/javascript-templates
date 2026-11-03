@@ -41,7 +41,7 @@ on:
         required: false
         default: main
       pipeline-php-core-ref:
-        description: Branch, tag or SHA of pipeline-php-core to test against
+        description: Branch, tag or SHA of 51degrees-php to test against
         required: false
         default: main
       rust-ref:
@@ -265,7 +265,7 @@ jobs:
           python -m pytest tests/test_javascriptbuilder.py -q
 
   pipeline-php-core:
-    name: pipeline-php-core JavaScript builder
+    name: 51degrees-php JavaScript builder
     runs-on: ubuntu-latest
     steps:
       - name: Check out the template under review
@@ -273,12 +273,13 @@ jobs:
         with:
           path: template
 
-      - name: Check out pipeline-php-core
+      # pipeline/core of the monorepo carries the copy. Its unit tests need
+      # no submodule, so the C sources and data files are not checked out.
+      - name: Check out 51degrees-php
         uses: actions/checkout@v4
         with:
-          repository: 51Degrees/pipeline-php-core
+          repository: 51Degrees/51degrees-php
           ref: ${{ inputs.pipeline-php-core-ref || 'main' }}
-          submodules: recursive
           path: consumer
 
       # A copy rather than a submodule, so it is compared with the file as
@@ -287,16 +288,16 @@ jobs:
       - name: Swap in the template under review
         run: |
           set -euo pipefail
-          file=javascript-templates/JavaScriptResource.mustache
+          file=pipeline/core/javascript-templates/JavaScriptResource.mustache
           if [ ! -f "consumer/$file" ]; then
             echo "::error::consumer/$file is missing - the copy has moved and this workflow needs updating"
             exit 1
           fi
           cp template/JavaScriptResource.mustache "consumer/$file"
           if git -C consumer diff --quiet -- "$file"; then
-            echo "::notice::the copy in pipeline-php-core is identical to the revision under review"
+            echo "::notice::the copy in 51degrees-php is identical to the revision under review"
           else
-            echo "::warning::the copy in pipeline-php-core differs from the revision under review"
+            echo "::warning::the copy in 51degrees-php differs from the revision under review"
             git -C consumer --no-pager diff --stat -- "$file"
           fi
 
@@ -306,7 +307,7 @@ jobs:
           tools: composer
 
       - name: Run the unit tests
-        working-directory: consumer
+        working-directory: consumer/pipeline/core
         run: |
           set -euo pipefail
           composer install --no-interaction --no-progress
