@@ -25,27 +25,27 @@ on:
   workflow_dispatch:
     inputs:
       pipeline-dotnet-ref:
-        description: Branch, tag or SHA of pipeline-dotnet to test against
+        description: Branch, tag or SHA of 51degrees-dotnet to test against
         required: false
         default: main
       pipeline-java-ref:
-        description: Branch, tag or SHA of pipeline-java to test against
+        description: Branch, tag or SHA of 51degrees-java to test against
         required: false
         default: main
       pipeline-node-ref:
-        description: Branch, tag or SHA of pipeline-node to test against
+        description: Branch, tag or SHA of 51degrees-node to test against
         required: false
         default: main
       pipeline-python-ref:
-        description: Branch, tag or SHA of pipeline-python to test against
+        description: Branch, tag or SHA of 51degrees-python to test against
         required: false
         default: main
       pipeline-php-core-ref:
-        description: Branch, tag or SHA of pipeline-php-core to test against
+        description: Branch, tag or SHA of 51degrees-php to test against
         required: false
         default: main
       rust-ref:
-        description: Branch, tag or SHA of rust to test against
+        description: Branch, tag or SHA of 51degrees-rust to test against
         required: false
         default: main
 
@@ -54,7 +54,7 @@ permissions:
 
 jobs:
   pipeline-dotnet:
-    name: pipeline-dotnet JavaScript builder
+    name: 51degrees-dotnet JavaScript builder
     runs-on: ubuntu-latest
     steps:
       - name: Check out the template under review
@@ -62,28 +62,30 @@ jobs:
         with:
           path: template
 
-      - name: Check out pipeline-dotnet
+      - name: Check out 51degrees-dotnet
         uses: actions/checkout@v4
         with:
-          repository: 51Degrees/pipeline-dotnet
+          repository: 51Degrees/51degrees-dotnet
           ref: ${{ inputs.pipeline-dotnet-ref || 'main' }}
-          submodules: recursive
+          # The Pipeline API packages are under pipeline/ and need only the
+          # direct submodules, not the data files under cxx/.
+          submodules: true
           path: consumer
 
       - name: Swap in the template under review
         run: |
           set -euo pipefail
-          dest=consumer/FiftyOne.Pipeline.Elements/FiftyOne.Pipeline.JavaScriptBuilderElement/Templates
+          dest=consumer/pipeline/JavaScriptBuilderElement/Templates
           if [ ! -d "$dest" ]; then
             echo "::error::$dest is missing - the submodule has moved and this workflow needs updating"
             exit 1
           fi
           cp template/*.mustache "$dest/"
           # The templates are embedded resources. If the copy changed nothing
-          # then the run would exercise the revision pipeline-dotnet pins and
+          # then the run would exercise the revision 51degrees-dotnet pins and
           # report a pass that says nothing about this pull request.
           if git -C "$dest" diff --quiet; then
-            echo "::notice::identical to the revision pipeline-dotnet pins, nothing swapped in"
+            echo "::notice::identical to the revision 51degrees-dotnet pins, nothing swapped in"
           else
             git -C "$dest" --no-pager diff --stat
           fi
@@ -98,10 +100,11 @@ jobs:
           chromedriver --version || echo "::warning::no chromedriver on the runner"
 
       - name: Run the JavaScript builder tests
-        working-directory: consumer
+        # pipeline/global.json pins the .NET 8 SDK installed above.
+        working-directory: consumer/pipeline
         run: >
           dotnet test -c Release
-          FiftyOne.Pipeline.Elements/FiftyOne.Pipeline.JavaScriptBuilderElementTests/FiftyOne.Pipeline.JavaScriptBuilderElementTests.csproj
+          Tests/JavaScriptBuilderElementTests/FiftyOne.Pipeline.JavaScriptBuilderElementTests.csproj
           --logger "console;verbosity=normal"
           --logger "trx;LogFileName=results.trx"
 
@@ -109,12 +112,12 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pipeline-dotnet-results
+          name: 51degrees-dotnet-results
           path: consumer/**/TestResults/*.trx
           if-no-files-found: warn
 
   pipeline-java:
-    name: pipeline-java JavaScript builder
+    name: 51degrees-java JavaScript builder
     runs-on: ubuntu-latest
     steps:
       - name: Check out the template under review
@@ -122,25 +125,27 @@ jobs:
         with:
           path: template
 
-      - name: Check out pipeline-java
+      - name: Check out 51degrees-java
         uses: actions/checkout@v4
         with:
-          repository: 51Degrees/pipeline-java
+          repository: 51Degrees/51degrees-java
           ref: ${{ inputs.pipeline-java-ref || 'main' }}
-          submodules: recursive
+          # The Pipeline API packages are under pipeline/ and need only the
+          # direct submodules, not the data files under cxx/.
+          submodules: true
           path: consumer
 
       - name: Swap in the template under review
         run: |
           set -euo pipefail
-          dest=consumer/pipeline.javascriptbuilder/src/main/resources/fiftyone/pipeline/javascriptbuilder/templates
+          dest=consumer/pipeline/pipeline.javascriptbuilder/src/main/resources/fiftyone/pipeline/javascriptbuilder/templates
           if [ ! -d "$dest" ]; then
             echo "::error::$dest is missing - the submodule has moved and this workflow needs updating"
             exit 1
           fi
           cp template/*.mustache "$dest/"
           if git -C "$dest" diff --quiet; then
-            echo "::notice::identical to the revision pipeline-java pins, nothing swapped in"
+            echo "::notice::identical to the revision 51degrees-java pins, nothing swapped in"
           else
             git -C "$dest" --no-pager diff --stat
           fi
@@ -160,7 +165,7 @@ jobs:
           chromedriver --version || echo "::warning::no chromedriver on the runner"
 
       - name: Run the JavaScript builder tests
-        working-directory: consumer
+        working-directory: consumer/pipeline
         run: |
           set -euo pipefail
           mvn -B -q -pl pipeline.javascriptbuilder -am -DskipTests install
@@ -170,12 +175,12 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pipeline-java-results
+          name: 51degrees-java-results
           path: consumer/**/surefire-reports/*.xml
           if-no-files-found: warn
 
   pipeline-node:
-    name: pipeline-node JavaScript builder
+    name: 51degrees-node JavaScript builder
     runs-on: ubuntu-latest
     steps:
       - name: Check out the template under review
@@ -183,25 +188,27 @@ jobs:
         with:
           path: template
 
-      - name: Check out pipeline-node
+      - name: Check out 51degrees-node
         uses: actions/checkout@v4
         with:
-          repository: 51Degrees/pipeline-node
+          repository: 51Degrees/51degrees-node
           ref: ${{ inputs.pipeline-node-ref || 'main' }}
-          submodules: recursive
+          # The Pipeline API packages are under pipeline/ and need only the
+          # direct submodules, not the data files under cxx/.
+          submodules: true
           path: consumer
 
       - name: Swap in the template under review
         run: |
           set -euo pipefail
-          dest=consumer/fiftyone.pipeline.core/javascript-templates
+          dest=consumer/pipeline/fiftyone.pipeline.core/javascript-templates
           if [ ! -d "$dest" ]; then
             echo "::error::$dest is missing - the submodule has moved and this workflow needs updating"
             exit 1
           fi
           cp template/*.mustache "$dest/"
           if git -C "$dest" diff --quiet; then
-            echo "::notice::identical to the revision pipeline-node pins, nothing swapped in"
+            echo "::notice::identical to the revision 51degrees-node pins, nothing swapped in"
           else
             git -C "$dest" --no-pager diff --stat
           fi
@@ -211,14 +218,14 @@ jobs:
           node-version: '22'
 
       - name: Run the JavaScript builder tests
-        working-directory: consumer/fiftyone.pipeline.core
+        working-directory: consumer/pipeline/fiftyone.pipeline.core
         run: |
           set -euo pipefail
           npm install
           npx jest tests/javascriptbuilder.test.js
 
   pipeline-python:
-    name: pipeline-python JavaScript builder
+    name: 51degrees-python JavaScript builder
     runs-on: ubuntu-latest
     steps:
       - name: Check out the template under review
@@ -226,25 +233,27 @@ jobs:
         with:
           path: template
 
-      - name: Check out pipeline-python
+      - name: Check out 51degrees-python
         uses: actions/checkout@v4
         with:
-          repository: 51Degrees/pipeline-python
+          repository: 51Degrees/51degrees-python
           ref: ${{ inputs.pipeline-python-ref || 'main' }}
-          submodules: recursive
+          # The Pipeline API packages are under pipeline/ and need only the
+          # direct submodules, not the data files under cxx/.
+          submodules: true
           path: consumer
 
       - name: Swap in the template under review
         run: |
           set -euo pipefail
-          dest=consumer/fiftyone_pipeline_core/src/fiftyone_pipeline_core/js_templates
+          dest=consumer/pipeline/fiftyone_pipeline_core/src/fiftyone_pipeline_core/js_templates
           if [ ! -d "$dest" ]; then
             echo "::error::$dest is missing - the submodule has moved and this workflow needs updating"
             exit 1
           fi
           cp template/*.mustache "$dest/"
           if git -C "$dest" diff --quiet; then
-            echo "::notice::identical to the revision pipeline-python pins, nothing swapped in"
+            echo "::notice::identical to the revision 51degrees-python pins, nothing swapped in"
           else
             git -C "$dest" --no-pager diff --stat
           fi
@@ -254,7 +263,7 @@ jobs:
           python-version: '3.13'
 
       - name: Run the JavaScript builder tests
-        working-directory: consumer/fiftyone_pipeline_core
+        working-directory: consumer/pipeline/fiftyone_pipeline_core
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
@@ -263,7 +272,7 @@ jobs:
           python -m pytest tests/test_javascriptbuilder.py -q
 
   pipeline-php-core:
-    name: pipeline-php-core JavaScript builder
+    name: 51degrees-php JavaScript builder
     runs-on: ubuntu-latest
     steps:
       - name: Check out the template under review
@@ -271,12 +280,13 @@ jobs:
         with:
           path: template
 
-      - name: Check out pipeline-php-core
+      # pipeline/core of the monorepo carries the copy. Its unit tests need
+      # no submodule, so the C sources and data files are not checked out.
+      - name: Check out 51degrees-php
         uses: actions/checkout@v4
         with:
-          repository: 51Degrees/pipeline-php-core
+          repository: 51Degrees/51degrees-php
           ref: ${{ inputs.pipeline-php-core-ref || 'main' }}
-          submodules: recursive
           path: consumer
 
       # A copy rather than a submodule, so it is compared with the file as
@@ -285,16 +295,16 @@ jobs:
       - name: Swap in the template under review
         run: |
           set -euo pipefail
-          file=javascript-templates/JavaScriptResource.mustache
+          file=pipeline/core/javascript-templates/JavaScriptResource.mustache
           if [ ! -f "consumer/$file" ]; then
             echo "::error::consumer/$file is missing - the copy has moved and this workflow needs updating"
             exit 1
           fi
           cp template/JavaScriptResource.mustache "consumer/$file"
           if git -C consumer diff --quiet -- "$file"; then
-            echo "::notice::the copy in pipeline-php-core is identical to the revision under review"
+            echo "::notice::the copy in 51degrees-php is identical to the revision under review"
           else
-            echo "::warning::the copy in pipeline-php-core differs from the revision under review"
+            echo "::warning::the copy in 51degrees-php differs from the revision under review"
             git -C consumer --no-pager diff --stat -- "$file"
           fi
 
@@ -304,14 +314,14 @@ jobs:
           tools: composer
 
       - name: Run the unit tests
-        working-directory: consumer
+        working-directory: consumer/pipeline/core
         run: |
           set -euo pipefail
           composer install --no-interaction --no-progress
           vendor/bin/phpunit --testsuite Unit
 
   rust:
-    name: rust JavaScript builder
+    name: 51degrees-rust JavaScript builder
     runs-on: ubuntu-latest
     steps:
       - name: Check out the template under review
@@ -319,10 +329,10 @@ jobs:
         with:
           path: template
 
-      - name: Check out rust
+      - name: Check out 51degrees-rust
         uses: actions/checkout@v4
         with:
-          repository: 51Degrees/rust
+          repository: 51Degrees/51degrees-rust
           ref: ${{ inputs.rust-ref || 'main' }}
           submodules: recursive
           path: consumer
@@ -338,13 +348,20 @@ jobs:
           fi
           cp template/JavaScriptResource.mustache "consumer/$file"
           if git -C consumer diff --quiet -- "$file"; then
-            echo "::notice::the copy in rust is identical to the revision under review"
+            echo "::notice::the copy in 51degrees-rust is identical to the revision under review"
           else
-            echo "::warning::the copy in rust differs from the revision under review"
+            echo "::warning::the copy in 51degrees-rust differs from the revision under review"
             git -C consumer --no-pager diff --stat -- "$file"
           fi
 
       - uses: dtolnay/rust-toolchain@stable
+
+      # fodid compiles the OWID source in, and this script copies it from the
+      # owid-rust submodule into fodid/src/owid, which git ignores.
+      - name: Copy the OWID source into fodid
+        working-directory: consumer
+        shell: pwsh
+        run: ./ci/copy-owid-source.ps1
 
       - name: Run the JavaScript builder tests
         working-directory: consumer
