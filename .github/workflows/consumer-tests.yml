@@ -4,9 +4,9 @@ name: Consumer tests
 # exercised by the SDKs that embed it. This builds every one of them against
 # the revision under review and runs its JavaScript builder tests.
 #
-# Six SDKs render the templates. .NET, Java, Node and Python embed them as a
-# submodule. PHP and Rust carry a copy of the file, which does not follow
-# this repository on its own, so for those two the job also says when the
+# Seven SDKs render the templates. .NET, Java, Node and Python embed them as a
+# submodule. PHP, Rust and Go carry a copy of the file, which does not follow
+# this repository on its own, so for those three the job also says when the
 # copy differs from main here. Every one of them is expected to render the
 # same script from the same evidence, so a
 # change here that suits one and not another is a fault in the change or in
@@ -46,6 +46,10 @@ on:
         default: main
       rust-ref:
         description: Branch, tag or SHA of 51degrees-rust to test against
+        required: false
+        default: main
+      go-ref:
+        description: Branch, tag or SHA of 51degrees-go to test against
         required: false
         default: main
 
@@ -366,3 +370,48 @@ jobs:
       - name: Run the JavaScript builder tests
         working-directory: consumer
         run: cargo test -p fiftyone-javascript-builder
+
+  go:
+    name: 51degrees-go JavaScript builder
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the template under review
+        uses: actions/checkout@v4
+        with:
+          path: template
+
+      - name: Check out 51degrees-go
+        uses: actions/checkout@v4
+        with:
+          repository: 51Degrees/51degrees-go
+          ref: ${{ inputs.go-ref || 'main' }}
+          path: consumer
+
+      # A copy embedded with go:embed, so the same comparison as PHP and Rust.
+      # The tests also read the javascript-templates submodule and check the
+      # copy equals it, so the revision under review goes in both places.
+      - name: Swap in the template under review
+        run: |
+          set -euo pipefail
+          file=pipeline/elements/javascriptbuilder/javascript-templates/JavaScriptResource.mustache
+          if [ ! -f "consumer/$file" ]; then
+            echo "::error::consumer/$file is missing - the copy has moved and this workflow needs updating"
+            exit 1
+          fi
+          cp template/JavaScriptResource.mustache "consumer/$file"
+          if git -C consumer diff --quiet -- "$file"; then
+            echo "::notice::the copy in 51degrees-go is identical to the revision under review"
+          else
+            echo "::warning::the copy in 51degrees-go differs from the revision under review"
+            git -C consumer --no-pager diff --stat -- "$file"
+          fi
+          mkdir -p consumer/javascript-templates
+          cp template/JavaScriptResource.mustache consumer/javascript-templates/
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: consumer/pipeline/go.mod
+
+      - name: Run the JavaScript builder tests
+        working-directory: consumer/pipeline
+        run: go test -count=1 -v ./elements/javascriptbuilder/
